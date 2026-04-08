@@ -1,6 +1,10 @@
 {
   "crons": [
     {
+      "path": "/api/cron/send-nudges",
+      "schedule": "30 16 * * *"
+    },
+    {
       "path": "/api/cron/check-missed",
       "schedule": "35 18 * * *" 
     }

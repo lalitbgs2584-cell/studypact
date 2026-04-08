@@ -1,4 +1,3 @@
-
 generator client {
   provider = "prisma-client"
   output   = "../lib/generated/prisma"
@@ -8,18 +7,57 @@ datasource db {
   provider = "postgresql"
 }
 
+enum TaskStatus {
+  PENDING
+  COMPLETED
+  MISSED
+}
+
+enum CheckInStatus {
+  PENDING
+  APPROVED
+  FLAGGED
+  REJECTED
+}
+
+enum VerificationVerdict {
+  APPROVE
+  FLAG
+}
+
+enum GroupVisibility {
+  PRIVATE
+  PUBLIC
+}
+
+enum NotificationKind {
+  PRE_DEADLINE_NUDGE
+  FLAGGED_SUBMISSION
+}
+
 model User {
-  id            String    @id
-  name          String
-  email         String
-  emailVerified Boolean   @default(false)
-  image         String?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  role          String?
-  isBlocked     Boolean?
-  sessions      Session[]
-  accounts      Account[]
+  id                      String                  @id
+  name                    String
+  email                   String
+  emailVerified           Boolean                 @default(false)
+  image                   String?
+  createdAt               DateTime                @default(now())
+  updatedAt               DateTime                @updatedAt
+  role                    String?
+  isBlocked               Boolean?
+  penaltyCount            Int                     @default(0)
+  sessions                Session[]
+  accounts                Account[]
+  groups                  UserGroup[]
+  createdGroups           Group[]                 @relation("GroupCreator")
+  tasks                   Task[]
+  checkIns                CheckIn[]
+  messages                GroupMessage[]
+  submissionVerifications SubmissionVerification[]
+  penaltyEvents           PenaltyEvent[]
+  startFiles              StartFile[]
+  endFiles                EndFile[]
+  notificationLogs        NotificationLog[]
 
   @@unique([email])
   @@map("user")
@@ -71,4 +109,203 @@ model Verification {
 
   @@index([identifier])
   @@map("verification")
+}
+
+model Group {
+  id                String                  @id @default(cuid())
+  name              String
+  description       String?
+  link              String?
+  visibility        GroupVisibility         @default(PRIVATE)
+  inviteCode        String                  @unique
+  inviteExpiresAt   DateTime
+  maxMembers        Int                     @default(8)
+  dailyPenalty      Int                     @default(10)
+  createdById       String
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
+  createdBy         User                    @relation("GroupCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  users             UserGroup[]
+  tasks             Task[]
+  checkIns          CheckIn[]
+  messages          GroupMessage[]
+  penaltyEvents     PenaltyEvent[]
+  startFiles        StartFile[]
+  endFiles          EndFile[]
+  notificationLogs  NotificationLog[]
+
+  @@index([createdById])
+  @@index([visibility, createdAt])
+  @@map("group")
+}
+
+model UserGroup {
+  userId          String
+  groupId         String
+  joinedAt        DateTime @default(now())
+  role            String?  @default("member")
+  points          Int      @default(0)
+  streak          Int      @default(0)
+  completions     Int      @default(0)
+  misses          Int      @default(0)
+  reputationScore Int      @default(60)
+  inactivityStrikes Int    @default(0)
+  lastCheckInAt  DateTime?
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@id([userId, groupId])
+  @@index([groupId])
+  @@map("user_group")
+}
+
+model Task {
+  id          String      @id @default(cuid())
+  title       String
+  details     String?
+  status      TaskStatus  @default(PENDING)
+  day         DateTime
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  completedAt DateTime?
+  userId      String
+  groupId     String
+  checkInId   String?
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  group       Group       @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  checkIn     CheckIn?    @relation(fields: [checkInId], references: [id], onDelete: SetNull)
+
+  @@index([userId, day])
+  @@index([groupId, day])
+  @@map("task")
+}
+
+model CheckIn {
+  id            String                  @id @default(cuid())
+  day           DateTime
+  reflection    String?
+  proofText     String?
+  status        CheckInStatus           @default(PENDING)
+  pointsAwarded Int                     @default(0)
+  penaltyApplied Int                    @default(0)
+  createdAt     DateTime                @default(now())
+  updatedAt     DateTime                @updatedAt
+  verifiedAt    DateTime?
+  userId        String
+  groupId       String
+  user          User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  group         Group                   @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  tasks         Task[]
+  verifications SubmissionVerification[]
+  penalties     PenaltyEvent[]
+  startFiles    StartFile[]
+  endFiles      EndFile[]
+  notificationLogs NotificationLog[]
+
+  @@index([groupId, day])
+  @@index([userId, day])
+  @@map("check_in")
+}
+
+model SubmissionVerification {
+  id         String              @id @default(cuid())
+  verdict    VerificationVerdict
+  note       String?
+  createdAt  DateTime            @default(now())
+  checkInId  String
+  reviewerId String
+  checkIn    CheckIn             @relation(fields: [checkInId], references: [id], onDelete: Cascade)
+  reviewer   User                @relation(fields: [reviewerId], references: [id], onDelete: Cascade)
+
+  @@index([checkInId])
+  @@index([reviewerId])
+  @@unique([checkInId, reviewerId])
+  @@map("submission_verification")
+}
+
+model PenaltyEvent {
+  id        String    @id @default(cuid())
+  points    Int
+  reason    String
+  createdAt DateTime  @default(now())
+  userId    String
+  groupId   String
+  checkInId String?
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  group     Group     @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  checkIn   CheckIn?  @relation(fields: [checkInId], references: [id], onDelete: SetNull)
+
+  @@index([groupId, createdAt])
+  @@index([userId, createdAt])
+  @@map("penalty_event")
+}
+
+model GroupMessage {
+  id        String   @id @default(cuid())
+  content   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  userId    String
+  groupId   String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  group     Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@index([groupId, createdAt])
+  @@index([userId, createdAt])
+  @@map("group_message")
+}
+
+model StartFile {
+  id         String    @id @default(cuid())
+  name       String
+  url        String
+  storageKey String?
+  uploadedAt DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  userId     String
+  groupId    String
+  checkInId  String?
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  group      Group     @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  checkIn    CheckIn?  @relation(fields: [checkInId], references: [id], onDelete: SetNull)
+
+  @@index([groupId])
+  @@map("start_file")
+}
+
+model EndFile {
+  id         String    @id @default(cuid())
+  name       String
+  url        String
+  storageKey String?
+  uploadedAt DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  userId     String
+  groupId    String
+  checkInId  String?
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  group      Group     @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  checkIn    CheckIn?  @relation(fields: [checkInId], references: [id], onDelete: SetNull)
+
+  @@index([groupId])
+  @@map("end_file")
+}
+
+model NotificationLog {
+  id        String           @id @default(cuid())
+  kind      NotificationKind
+  dedupeKey String           @unique
+  sentAt    DateTime         @default(now())
+  taskDay   DateTime?
+  userId    String
+  groupId   String?
+  checkInId String?
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  group     Group?           @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  checkIn   CheckIn?         @relation(fields: [checkInId], references: [id], onDelete: SetNull)
+
+  @@index([userId, sentAt])
+  @@index([groupId, sentAt])
+  @@map("notification_log")
 }

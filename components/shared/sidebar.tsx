@@ -1,19 +1,32 @@
 "use client";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { LayoutDashboard, Users, Shield, Plus, Goal, User, LogOut, ListTodo } from "lucide-react";
+import { authClient } from "@/lib/auth/client";
+import { LayoutDashboard, Shield, Goal, User, LogOut, ListTodo, Plus, Compass } from "lucide-react";
 import { cn } from "@/lib/utils";
-
-const routes = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/tasks", label: "My Tasks", icon: ListTodo },
-  { href: "/group/1/feed", label: "Group Feed", icon: Users },
-  { href: "/admin", label: "Admin Panel", icon: Shield },
-];
 
 export function Sidebar() {
   const pathname = usePathname();
+  const router = useRouter();
+  const { data: session } = authClient.useSession();
+  const user = session?.user as
+    | { name?: string | null; email?: string | null; role?: string | null }
+    | undefined;
+  const isAdmin = user?.role === "admin";
+  const routes = [
+    { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+    { href: "/groups/create", label: "Create Group", icon: Plus },
+    { href: "/groups/discover", label: "Discover Groups", icon: Compass },
+    { href: "/tasks", label: "My Tasks", icon: ListTodo },
+    ...(isAdmin ? [{ href: "/admin", label: "Admin Dashboard", icon: Shield }] : []),
+  ];
+
+  const handleSignOut = async () => {
+    await authClient.signOut();
+    router.push("/login");
+    router.refresh();
+  };
 
   return (
     <aside className="w-64 lg:w-72 border-r border-zinc-800/50 bg-black/40 backdrop-blur-xl flex flex-col hidden md:flex min-h-screen">
@@ -49,16 +62,20 @@ export function Sidebar() {
       </nav>
 
       <div className="p-4 mt-auto border-t border-zinc-800/50">
-        <Link href="/login" className="flex items-center gap-3 px-2 py-3 rounded-xl hover:bg-zinc-800/50 transition-colors cursor-pointer border border-transparent hover:border-zinc-700/50 group">
+        <button
+          type="button"
+          onClick={handleSignOut}
+          className="w-full flex items-center gap-3 px-2 py-3 rounded-xl hover:bg-zinc-800/50 transition-colors cursor-pointer border border-transparent hover:border-zinc-700/50 group text-left"
+        >
           <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-zinc-700 to-zinc-900 border border-zinc-600 flex items-center justify-center shadow-lg group-hover:border-zinc-500 transition-colors">
             <User className="w-5 h-5 text-zinc-300" />
           </div>
           <div className="flex flex-col flex-1">
             <span className="text-sm font-medium text-white group-hover:text-primary transition-colors">Logout / Switch User</span>
-            <span className="text-xs text-zinc-500">student@example.com</span>
+            <span className="text-xs text-zinc-500">{user?.name || user?.email || "student@example.com"}</span>
           </div>
           <LogOut className="w-4 h-4 text-zinc-500 group-hover:text-red-400 transition-colors" />
-        </Link>
+        </button>
       </div>
     </aside>
   );

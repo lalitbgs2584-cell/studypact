@@ -1,0 +1,934 @@
+import "server-only";
+
+import { headers } from "next/headers";
+import { redirect } from "next/navigation";
+import { UTApi } from "uploadthing/server";
+import auth from "@/lib/auth/auth";
+import { prisma } from "@/lib/db";
+import { reportServerError } from "@/lib/monitoring";
+import {
+  sendFlaggedSubmissionEmail,
+  sendPreDeadlineNudgeEmail,
+} from "@/lib/notifications/email";
+import {
+  addDays,
+  calculateReputationScore,
+  calculateRequiredReviewVotes,
+  formatDayKey,
+  startOfDay,
+  startOfYesterday,
+} from "@/lib/studypact";
+
+const utapi = new UTApi();
+
+export async function getCurrentSessionUser() {
+  const session = await auth.api.getSession({
+    headers: await headers(),
+  });
+
+  return session?.user ?? null;
+}
+
+export function buildLoginRedirect(pathname: string) {
+  return `/login?redirectTo=${encodeURIComponent(pathname)}`;
+}
+
+export function buildAppUrl(pathname: string) {
+  const baseUrl = process.env.BETTER_AUTH_BASE_URL || "http://localhost:3000";
+  return new URL(pathname, baseUrl).toString();
+}
+
+export async function requireSessionUser(pathname = "/dashboard") {
+  const user = await getCurrentSessionUser();
+
+  if (!user) {
+    redirect(buildLoginRedirect(pathname));
+  }
+
+  if (user.isBlocked) {
+    redirect("/blocked");
+  }
+
+  return user;
+}
+
+export async function getGroupMembership(userId: string, groupId: string) {
+  return prisma.userGroup.findUnique({
+    where: {
+      userId_groupId: {
+        userId,
+        groupId,
+      },
+    },
+    include: {
+      group: true,
+      user: true,
+    },
+  });
+}
+
+export async function requireGroupMembership(userId: string, groupId: string) {
+  const membership = await getGroupMembership(userId, groupId);
+
+  if (!membership) {
+    throw new Error("You are not part of this group");
+  }
+
+  return membership;
+}
+
+export type InviteLinkState = {
+  status: "missing" | "expired" | "full" | "joinable" | "already-member";
+  group:
+    | {
+        id: string;
+        name: string;
+        description: string | null;
+        inviteCode: string;
+        inviteExpiresAt: Date;
+        maxMembers: number;
+        memberCount: number;
+      }
+    | null;
+};
+
+export async function getInviteLinkState(token: string, userId?: string | null): Promise<InviteLinkState> {
+  const normalizedToken = token.trim().toUpperCase();
+  if (!normalizedToken) {
+    return { status: "missing", group: null };
+  }
+
+  const group = await prisma.group.findUnique({
+    where: {
+      inviteCode: normalizedToken,
+    },
+    include: {
+      _count: {
+        select: {
+          users: true,
+        },
+      },
+    },
+  });
+
+  if (!group) {
+    return { status: "missing", group: null };
+  }
+
+  const inviteGroup = {
+    id: group.id,
+    name: group.name,
+    description: group.description,
+    inviteCode: group.inviteCode,
+    inviteExpiresAt: group.inviteExpiresAt,
+    maxMembers: group.maxMembers,
+    memberCount: group._count.users,
+  };
+
+  if (group.inviteExpiresAt <= new Date()) {
+    return { status: "expired", group: inviteGroup };
+  }
+
+  if (userId) {
+    const membership = await prisma.userGroup.findUnique({
+      where: {
+        userId_groupId: {
+          userId,
+          groupId: group.id,
+        },
+      },
+      select: {
+        userId: true,
+      },
+    });
+
+    if (membership) {
+      return { status: "already-member", group: inviteGroup };
+    }
+  }
+
+  if (group._count.users >= group.maxMembers) {
+    return { status: "full", group: inviteGroup };
+  }
+
+  return { status: "joinable", group: inviteGroup };
+}
+
+export async function refreshMembershipReputation(userId: string, groupId: string) {
+  const membership = await prisma.userGroup.findUnique({
+    where: {
+      userId_groupId: {
+        userId,
+        groupId,
+      },
+    },
+  });
+
+  if (!membership) {
+    return;
+  }
+
+  const reputationScore = calculateReputationScore({
+    points: membership.points,
+    streak: membership.streak,
+    completions: membership.completions,
+    misses: membership.misses,
+    inactivityStrikes: membership.inactivityStrikes,
+  });
+
+  if (membership.reputationScore === reputationScore) {
+    return;
+  }
+
+  await prisma.userGroup.update({
+    where: {
+      userId_groupId: {
+        userId,
+        groupId,
+      },
+    },
+    data: {
+      reputationScore,
+    },
+  });
+}
+
+async function createNotificationLog(input: {
+  kind: "PRE_DEADLINE_NUDGE" | "FLAGGED_SUBMISSION";
+  dedupeKey: string;
+  userId: string;
+  groupId?: string;
+  checkInId?: string;
+  taskDay?: Date;
+}) {
+  await prisma.notificationLog.create({
+    data: {
+      kind: input.kind,
+      dedupeKey: input.dedupeKey,
+      userId: input.userId,
+      groupId: input.groupId,
+      checkInId: input.checkInId,
+      taskDay: input.taskDay,
+    },
+  });
+}
+
+async function hasNotificationLog(dedupeKey: string) {
+  const existing = await prisma.notificationLog.findUnique({
+    where: {
+      dedupeKey,
+    },
+    select: {
+      id: true,
+    },
+  });
+
+  return Boolean(existing);
+}
+
+export async function sendFlaggedSubmissionAlert(checkInId: string) {
+  const dedupeKey = `flagged:${checkInId}`;
+  if (await hasNotificationLog(dedupeKey)) {
+    return false;
+  }
+
+  const checkIn = await prisma.checkIn.findUnique({
+    where: {
+      id: checkInId,
+    },
+    include: {
+      user: true,
+      group: true,
+    },
+  });
+
+  if (!checkIn) {
+    return false;
+  }
+
+  await sendFlaggedSubmissionEmail({
+    email: checkIn.user.email,
+    name: checkIn.user.name,
+    groupName: checkIn.group.name,
+    groupUrl: buildAppUrl(`/group/${checkIn.groupId}/feed`),
+  });
+
+  await createNotificationLog({
+    kind: "FLAGGED_SUBMISSION",
+    dedupeKey,
+    userId: checkIn.userId,
+    groupId: checkIn.groupId,
+    checkInId: checkIn.id,
+    taskDay: checkIn.day,
+  });
+
+  return true;
+}
+
+export async function deleteUploadThingFile(storageKey?: string | null) {
+  if (!storageKey) {
+    return;
+  }
+
+  try {
+    await utapi.deleteFiles(storageKey);
+  } catch (error) {
+    console.error("Failed to delete UploadThing file", { storageKey, error });
+  }
+}
+
+export async function cleanupAbandonedDraftProofs(cutoffHours = 6) {
+  const cutoff = new Date(Date.now() - cutoffHours * 60 * 60 * 1000);
+  const [startFiles, endFiles] = await Promise.all([
+    prisma.startFile.findMany({
+      where: {
+        checkInId: null,
+        uploadedAt: {
+          lt: cutoff,
+        },
+      },
+    }),
+    prisma.endFile.findMany({
+      where: {
+        checkInId: null,
+        uploadedAt: {
+          lt: cutoff,
+        },
+      },
+    }),
+  ]);
+
+  for (const file of startFiles) {
+    await deleteUploadThingFile(file.storageKey);
+    await prisma.startFile.delete({
+      where: {
+        id: file.id,
+      },
+    });
+  }
+
+  for (const file of endFiles) {
+    await deleteUploadThingFile(file.storageKey);
+    await prisma.endFile.delete({
+      where: {
+        id: file.id,
+      },
+    });
+  }
+
+  return {
+    cleanedStartDrafts: startFiles.length,
+    cleanedEndDrafts: endFiles.length,
+  };
+}
+
+export async function sendPreDeadlineNudges(options?: {
+  groupId?: string;
+  targetDay?: Date;
+}) {
+  const targetDay = startOfDay(options?.targetDay ?? new Date());
+  const targetKey = formatDayKey(targetDay);
+  const groups = options?.groupId
+    ? [{ id: options.groupId }]
+    : await prisma.group.findMany({
+        select: {
+          id: true,
+        },
+      });
+
+  const summary = {
+    targetKey,
+    checkedGroups: 0,
+    nudgedUsers: 0,
+    skippedUsers: 0,
+  };
+
+  for (const group of groups) {
+    summary.checkedGroups += 1;
+
+    const [memberships, tasks, checkIns] = await Promise.all([
+      prisma.userGroup.findMany({
+        where: {
+          groupId: group.id,
+        },
+        include: {
+          user: true,
+          group: true,
+        },
+      }),
+      prisma.task.findMany({
+        where: {
+          groupId: group.id,
+          day: targetDay,
+        },
+        select: {
+          userId: true,
+        },
+      }),
+      prisma.checkIn.findMany({
+        where: {
+          groupId: group.id,
+          day: targetDay,
+        },
+        include: {
+          endFiles: {
+            select: {
+              id: true,
+            },
+          },
+        },
+      }),
+    ]);
+
+    const taskUserIds = new Set(tasks.map((task) => task.userId));
+    const checkInsByUser = new Map(checkIns.map((checkIn) => [checkIn.userId, checkIn]));
+
+    for (const membership of memberships) {
+      if (!taskUserIds.has(membership.userId)) {
+        continue;
+      }
+
+      const checkIn = checkInsByUser.get(membership.userId);
+      if (checkIn?.endFiles.length) {
+        continue;
+      }
+
+      const dedupeKey = `nudge:${group.id}:${membership.userId}:${targetKey}`;
+      if (await hasNotificationLog(dedupeKey)) {
+        summary.skippedUsers += 1;
+        continue;
+      }
+
+      try {
+        await sendPreDeadlineNudgeEmail({
+          email: membership.user.email,
+          name: membership.user.name,
+          groupName: membership.group.name,
+          dashboardUrl: buildAppUrl(`/group/${group.id}/checkin`),
+        });
+
+        await createNotificationLog({
+          kind: "PRE_DEADLINE_NUDGE",
+          dedupeKey,
+          userId: membership.userId,
+          groupId: group.id,
+          taskDay: targetDay,
+        });
+
+        summary.nudgedUsers += 1;
+      } catch (error) {
+        await reportServerError("sendPreDeadlineNudges", error, {
+          groupId: group.id,
+          userId: membership.userId,
+          targetKey,
+        });
+        summary.skippedUsers += 1;
+      }
+    }
+  }
+
+  return summary;
+}
+
+export async function syncMissedCheckInPenalties(options?: {
+  groupId?: string;
+  targetDay?: Date;
+}) {
+  const targetDay = startOfDay(options?.targetDay ?? startOfYesterday());
+  const targetKey = formatDayKey(targetDay);
+  const millisecondsPerDay = 1000 * 60 * 60 * 24;
+  const groups = options?.groupId
+    ? [{ id: options.groupId }]
+    : await prisma.group.findMany({
+        select: {
+          id: true,
+        },
+      });
+
+  const summary = {
+    targetKey,
+    checkedGroups: 0,
+    penalizedUsers: 0,
+    skippedUsers: 0,
+    decayedUsers: 0,
+    reengagedUsers: 0,
+  };
+
+  for (const group of groups) {
+    summary.checkedGroups += 1;
+
+    const [memberships, tasks, checkIns] = await Promise.all([
+      prisma.userGroup.findMany({
+        where: {
+          groupId: group.id,
+        },
+        include: {
+          group: true,
+        },
+      }),
+      prisma.task.findMany({
+        where: {
+          groupId: group.id,
+          day: targetDay,
+        },
+        select: {
+          id: true,
+          userId: true,
+          status: true,
+        },
+      }),
+      prisma.checkIn.findMany({
+        where: {
+          groupId: group.id,
+          day: targetDay,
+        },
+        include: {
+          endFiles: {
+            select: {
+              id: true,
+            },
+          },
+        },
+      }),
+    ]);
+
+    if (!tasks.length) {
+      continue;
+    }
+
+    const taskIdsByUser = new Map<string, string[]>();
+    for (const task of tasks) {
+      const current = taskIdsByUser.get(task.userId) ?? [];
+      current.push(task.id);
+      taskIdsByUser.set(task.userId, current);
+    }
+
+    const checkInsByUser = new Map(checkIns.map((checkIn) => [checkIn.userId, checkIn]));
+
+    for (const membership of memberships) {
+      const taskIds = taskIdsByUser.get(membership.userId);
+      if (!taskIds?.length) {
+        const lastActiveAt = membership.lastCheckInAt ?? membership.joinedAt;
+        const inactiveDays = Math.max(
+          Math.floor((targetDay.getTime() - startOfDay(lastActiveAt).getTime()) / millisecondsPerDay) - 1,
+          0,
+        );
+
+        if (membership.inactivityStrikes !== inactiveDays) {
+          await prisma.userGroup.update({
+            where: {
+              userId_groupId: {
+                userId: membership.userId,
+                groupId: group.id,
+              },
+            },
+            data: {
+              inactivityStrikes: inactiveDays,
+            },
+          });
+
+          await refreshMembershipReputation(membership.userId, group.id);
+          if (inactiveDays > membership.inactivityStrikes) {
+            summary.decayedUsers += 1;
+          } else {
+            summary.reengagedUsers += 1;
+          }
+        }
+
+        continue;
+      }
+
+      const checkIn = checkInsByUser.get(membership.userId);
+      const hasEndProof = Boolean(checkIn?.endFiles.length);
+
+      if (checkIn && hasEndProof) {
+        if (membership.inactivityStrikes !== 0) {
+          await prisma.userGroup.update({
+            where: {
+              userId_groupId: {
+                userId: membership.userId,
+                groupId: group.id,
+              },
+            },
+            data: {
+              inactivityStrikes: 0,
+            },
+          });
+
+          await refreshMembershipReputation(membership.userId, group.id);
+          summary.reengagedUsers += 1;
+        }
+        continue;
+      }
+
+      const reason = checkIn
+        ? `Missing end proof for ${targetKey}`
+        : `Missed daily check-in for ${targetKey}`;
+
+      const existingPenalty = await prisma.penaltyEvent.findFirst({
+        where: {
+          groupId: group.id,
+          userId: membership.userId,
+          reason,
+        },
+      });
+
+      if (existingPenalty) {
+        summary.skippedUsers += 1;
+        continue;
+      }
+
+      await prisma.$transaction(async (tx) => {
+        await tx.penaltyEvent.create({
+          data: {
+            userId: membership.userId,
+            groupId: group.id,
+            checkInId: checkIn?.id,
+            points: membership.group.dailyPenalty,
+            reason,
+          },
+        });
+
+        await tx.user.update({
+          where: {
+            id: membership.userId,
+          },
+          data: {
+            penaltyCount: {
+              increment: 1,
+            },
+          },
+        });
+
+        await tx.userGroup.update({
+          where: {
+            userId_groupId: {
+              userId: membership.userId,
+              groupId: group.id,
+            },
+          },
+          data: {
+            points: {
+              decrement: membership.group.dailyPenalty,
+            },
+            misses: {
+              increment: 1,
+            },
+            streak: 0,
+            inactivityStrikes: 0,
+          },
+        });
+
+        await tx.task.updateMany({
+          where: {
+            id: {
+              in: taskIds,
+            },
+            status: "PENDING",
+          },
+          data: {
+            status: "MISSED",
+          },
+        });
+
+        if (checkIn) {
+          await tx.checkIn.update({
+            where: {
+              id: checkIn.id,
+            },
+            data: {
+              status: "FLAGGED",
+              verifiedAt: new Date(),
+              penaltyApplied: membership.group.dailyPenalty,
+              pointsAwarded: 0,
+            },
+          });
+        }
+      });
+      await refreshMembershipReputation(membership.userId, group.id);
+      summary.penalizedUsers += 1;
+    }
+  }
+
+  return summary;
+}
+
+async function applyApprovedCheckIn(checkInId: string) {
+  const checkIn = await prisma.checkIn.findUnique({
+    where: {
+      id: checkInId,
+    },
+    include: {
+      tasks: true,
+      group: true,
+    },
+  });
+
+  if (!checkIn) {
+    throw new Error("Check-in not found");
+  }
+
+  if (checkIn.status !== "PENDING") {
+    return checkIn.status;
+  }
+
+  const membership = await prisma.userGroup.findUnique({
+    where: {
+      userId_groupId: {
+        userId: checkIn.userId,
+        groupId: checkIn.groupId,
+      },
+    },
+  });
+
+  if (!membership) {
+    throw new Error("Group membership missing");
+  }
+
+  const completedTasks = checkIn.tasks.filter((task) => task.status === "COMPLETED").length;
+  const awardedPoints = Math.max(10, completedTasks * 5);
+  const targetKey = formatDayKey(checkIn.day);
+  const previousKey = membership.lastCheckInAt ? formatDayKey(membership.lastCheckInAt) : null;
+  const previousDayKey = formatDayKey(addDays(checkIn.day, -1));
+
+  const nextStreak =
+    previousKey === targetKey
+      ? membership.streak
+      : previousKey === previousDayKey
+        ? membership.streak + 1
+        : 1;
+
+  await prisma.$transaction([
+    prisma.checkIn.update({
+      where: {
+        id: checkIn.id,
+      },
+      data: {
+        status: "APPROVED",
+        verifiedAt: new Date(),
+        pointsAwarded: awardedPoints,
+        penaltyApplied: 0,
+      },
+    }),
+    prisma.userGroup.update({
+      where: {
+        userId_groupId: {
+          userId: checkIn.userId,
+          groupId: checkIn.groupId,
+        },
+      },
+      data: {
+        points: {
+          increment: awardedPoints,
+        },
+        completions: {
+          increment: 1,
+        },
+        streak: nextStreak,
+        inactivityStrikes: 0,
+        lastCheckInAt: checkIn.day,
+      },
+    }),
+  ]);
+
+  await refreshMembershipReputation(checkIn.userId, checkIn.groupId);
+  return "APPROVED" as const;
+}
+
+async function applyFlaggedCheckIn(checkInId: string) {
+  const checkIn = await prisma.checkIn.findUnique({
+    where: {
+      id: checkInId,
+    },
+    include: {
+      group: true,
+    },
+  });
+
+  if (!checkIn) {
+    throw new Error("Check-in not found");
+  }
+
+  if (checkIn.status !== "PENDING") {
+    return checkIn.status;
+  }
+
+  const reason = `Submission flagged for ${formatDayKey(checkIn.day)}`;
+  const existingPenalty = await prisma.penaltyEvent.findFirst({
+    where: {
+      groupId: checkIn.groupId,
+      userId: checkIn.userId,
+      checkInId: checkIn.id,
+      reason,
+    },
+  });
+
+  await prisma.$transaction(async (tx) => {
+    await tx.checkIn.update({
+      where: {
+        id: checkIn.id,
+      },
+      data: {
+        status: "FLAGGED",
+        verifiedAt: new Date(),
+        penaltyApplied: checkIn.group.dailyPenalty,
+        pointsAwarded: 0,
+      },
+    });
+
+    if (!existingPenalty) {
+      await tx.penaltyEvent.create({
+        data: {
+          userId: checkIn.userId,
+          groupId: checkIn.groupId,
+          checkInId: checkIn.id,
+          points: checkIn.group.dailyPenalty,
+          reason,
+        },
+      });
+
+      await tx.user.update({
+        where: {
+          id: checkIn.userId,
+        },
+        data: {
+          penaltyCount: {
+            increment: 1,
+          },
+        },
+      });
+
+      await tx.userGroup.update({
+        where: {
+          userId_groupId: {
+            userId: checkIn.userId,
+            groupId: checkIn.groupId,
+          },
+        },
+        data: {
+          points: {
+            decrement: checkIn.group.dailyPenalty,
+          },
+          misses: {
+            increment: 1,
+          },
+          streak: 0,
+          inactivityStrikes: 0,
+        },
+      });
+    }
+  });
+  await refreshMembershipReputation(checkIn.userId, checkIn.groupId);
+  return "FLAGGED" as const;
+}
+
+export async function resolveCheckInAfterVerification(checkInId: string) {
+  const checkIn = await prisma.checkIn.findUnique({
+    where: {
+      id: checkInId,
+    },
+    include: {
+      verifications: {
+        orderBy: {
+          createdAt: "desc",
+        },
+      },
+    },
+  });
+
+  if (!checkIn) {
+    throw new Error("Check-in not found");
+  }
+
+  const memberships = await prisma.userGroup.findMany({
+    where: {
+      groupId: checkIn.groupId,
+    },
+    select: {
+      userId: true,
+      role: true,
+    },
+  });
+
+  const roleByUserId = new Map(memberships.map((membership) => [membership.userId, membership.role ?? "member"]));
+  const adminVote = checkIn.verifications.find((verification) => roleByUserId.get(verification.reviewerId) === "admin");
+  const approvalCount = checkIn.verifications.filter((verification) => verification.verdict === "APPROVE").length;
+  const flagCount = checkIn.verifications.filter((verification) => verification.verdict === "FLAG").length;
+  const requiredVotes = calculateRequiredReviewVotes(memberships.length);
+
+  if (adminVote) {
+    const status =
+      adminVote.verdict === "APPROVE"
+        ? await applyApprovedCheckIn(checkIn.id)
+        : await applyFlaggedCheckIn(checkIn.id);
+
+    return {
+      resolved: true,
+      status,
+      approvalCount,
+      flagCount,
+      requiredVotes,
+      resolution: "admin-override" as const,
+    };
+  }
+
+  if (approvalCount >= requiredVotes && approvalCount > flagCount) {
+    const status = await applyApprovedCheckIn(checkIn.id);
+    return {
+      resolved: true,
+      status,
+      approvalCount,
+      flagCount,
+      requiredVotes,
+      resolution: "majority-vote" as const,
+    };
+  }
+
+  if (flagCount >= requiredVotes && flagCount > approvalCount) {
+    const status = await applyFlaggedCheckIn(checkIn.id);
+    return {
+      resolved: true,
+      status,
+      approvalCount,
+      flagCount,
+      requiredVotes,
+      resolution: "majority-vote" as const,
+    };
+  }
+
+  return {
+    resolved: false,
+    status: checkIn.status,
+    approvalCount,
+    flagCount,
+    requiredVotes,
+    resolution: null,
+  };
+}
+
+export async function platformResolveCheckIn(checkInId: string, verdict: "APPROVE" | "FLAG") {
+  const checkIn = await prisma.checkIn.findUnique({
+    where: {
+      id: checkInId,
+    },
+    select: {
+      status: true,
+    },
+  });
+
+  if (!checkIn) {
+    throw new Error("Check-in not found");
+  }
+
+  if (checkIn.status !== "PENDING") {
+    return checkIn.status;
+  }
+
+  if (verdict === "APPROVE") {
+    return applyApprovedCheckIn(checkInId);
+  }
+
+  const status = await applyFlaggedCheckIn(checkInId);
+  await sendFlaggedSubmissionAlert(checkInId);
+  return status;
+}

@@ -1,28 +1,54 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { authClient } from "@/lib/auth/client";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import Link from "next/link";
 import { Sparkles, Loader2 } from "lucide-react";
 
-export default function SignupPage() {
+function SignupPageFallback() {
+  return (
+    <div className="min-h-screen grid lg:grid-cols-2 bg-black text-white">
+      <div className="hidden lg:flex flex-col justify-between p-12 bg-zinc-900/50 border-r border-zinc-800 relative overflow-hidden order-2">
+        <div className="absolute inset-0 bg-gradient-to-bl from-primary/20 via-zinc-950 to-black"></div>
+        <div className="relative z-10 flex items-center gap-3">
+          <Sparkles className="w-8 h-8 text-primary" />
+          <span className="font-bold text-2xl tracking-tight">StudyPact</span>
+        </div>
+      </div>
+
+      <div className="flex items-center justify-center p-8 lg:p-12 relative order-1">
+        <div className="w-full max-w-md space-y-6 animate-in fade-in zoom-in-95 duration-700 text-center">
+          <Loader2 className="w-8 h-8 animate-spin mx-auto text-primary" />
+          <div>
+            <h1 className="text-3xl font-bold mb-2">Loading sign up</h1>
+            <p className="text-zinc-400">Preparing your account creation flow.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SignupPageContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const redirectTo = searchParams.get("redirectTo") || "/dashboard";
 
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError("");
 
-    const { data, error } = await authClient.signUp.email({
+    const { error } = await authClient.signUp.email({
       email,
       password,
       name,
@@ -32,14 +58,14 @@ export default function SignupPage() {
       setError(error.message || "Failed to sign up.");
       setLoading(false);
     } else {
-      router.push("/dashboard");
+      router.push(redirectTo);
     }
   };
 
   const handleGoogleSignUp = async () => {
     await authClient.signIn.social({
       provider: "google",
-      callbackURL: "/dashboard"
+      callbackURL: redirectTo,
     });
   };
 
@@ -145,12 +171,20 @@ export default function SignupPage() {
 
           <p className="text-center text-sm text-zinc-500">
             Already have an account?{" "}
-            <Link href="/login" className="text-white hover:text-primary transition-colors font-medium">
+            <Link href={`/login?redirectTo=${encodeURIComponent(redirectTo)}`} className="text-white hover:text-primary transition-colors font-medium">
               Sign in instead
             </Link>
           </p>
         </div>
       </div>
     </div>
+  );
+}
+
+export default function SignupPage() {
+  return (
+    <Suspense fallback={<SignupPageFallback />}>
+      <SignupPageContent />
+    </Suspense>
   );
 }

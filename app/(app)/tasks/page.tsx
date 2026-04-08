@@ -1,7 +1,43 @@
 import { TodoList } from "@/components/shared/todo-list";
+import auth from "@/lib/auth/auth";
+import { prisma } from "@/lib/db";
+import { startOfDay } from "@/lib/studypact";
+import { headers } from "next/headers";
+import { redirect } from "next/navigation";
 import { CheckCircle2 } from "lucide-react";
 
-export default function TasksPage() {
+export default async function TasksPage() {
+  const session = await auth.api.getSession({
+    headers: await headers(),
+  });
+
+  if (!session?.user) {
+    redirect("/login");
+  }
+
+  const [memberships, tasks] = await Promise.all([
+    prisma.userGroup.findMany({
+      where: {
+        userId: session.user.id,
+      },
+      include: {
+        group: true,
+      },
+      orderBy: {
+        joinedAt: "desc",
+      },
+    }),
+    prisma.task.findMany({
+      where: {
+        userId: session.user.id,
+        day: startOfDay(),
+      },
+      orderBy: {
+        createdAt: "asc",
+      },
+    }),
+  ]);
+
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-8 duration-700 h-full max-w-4xl mx-auto flex flex-col min-h-[85vh]">
       <div className="flex items-center gap-4 border-b border-zinc-800/80 pb-6 shrink-0">
@@ -15,7 +51,18 @@ export default function TasksPage() {
       </div>
 
       <div className="flex-1">
-        <TodoList />
+        <TodoList
+          groups={memberships.map((membership) => ({
+            id: membership.groupId,
+            name: membership.group.name,
+          }))}
+          tasks={tasks.map((task) => ({
+            id: task.id,
+            text: task.title,
+            completed: task.status === "COMPLETED",
+            groupId: task.groupId,
+          }))}
+        />
       </div>
     </div>
   );

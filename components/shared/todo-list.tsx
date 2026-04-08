@@ -1,44 +1,82 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Plus, ListTodo, Trash2, CalendarCheck, GripVertical } from "lucide-react";
+import { Label } from "@/components/ui/label";
+import { createTaskAction, deleteTaskAction, toggleTaskAction } from "@/lib/actions/studypact";
+import { Plus, ListTodo, Trash2, CalendarCheck, GripVertical, Loader2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 type Task = {
   id: string;
   text: string;
   completed: boolean;
+  groupId: string;
 };
 
-export function TodoList() {
-  const [tasks, setTasks] = useState<Task[]>([
-    { id: "1", text: "Read 10 pages of Atomic Habits", completed: false },
-    { id: "2", text: "Complete Next.js Auth module", completed: true },
-    { id: "3", text: "Submit check-in to StudyPact CS Group", completed: false },
-  ]);
+type GroupOption = {
+  id: string;
+  name: string;
+};
+
+type TodoListProps = {
+  groups: GroupOption[];
+  tasks: Task[];
+};
+
+export function TodoList({ groups, tasks: initialTasks }: TodoListProps) {
+  const [tasks, setTasks] = useState<Task[]>(initialTasks);
   const [newTask, setNewTask] = useState("");
+  const [selectedGroupId, setSelectedGroupId] = useState(groups[0]?.id ?? "");
+  const [isPending, startTransition] = useTransition();
 
   const addTask = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newTask.trim()) return;
-    setTasks([...tasks, { id: Date.now().toString(), text: newTask, completed: false }]);
-    setNewTask("");
+    if (!newTask.trim() || !selectedGroupId) return;
+
+    startTransition(async () => {
+      const createdTask = await createTaskAction({
+        groupId: selectedGroupId,
+        title: newTask,
+      });
+
+      setTasks((current) => createdTask ? [
+        ...current,
+        { id: createdTask.id, text: createdTask.title, completed: false, groupId: createdTask.groupId },
+      ] : current);
+      setNewTask("");
+    });
   };
 
   const toggleTask = (id: string) => {
-    setTasks(tasks.map(t => t.id === id ? { ...t, completed: !t.completed } : t));
+    const target = tasks.find((task) => task.id === id);
+    if (!target) return;
+
+    const nextCompleted = !target.completed;
+    setTasks(tasks.map((task) => task.id === id ? { ...task, completed: nextCompleted } : task));
+
+    startTransition(async () => {
+      await toggleTaskAction({ taskId: id, completed: nextCompleted });
+    });
   };
 
   const deleteTask = (id: string) => {
-    setTasks(tasks.filter(t => t.id !== id));
+    setTasks(tasks.filter((task) => task.id !== id));
+    startTransition(async () => {
+      await deleteTaskAction(id);
+    });
   };
 
-  const completedCount = tasks.filter(t => t.completed).length;
-  const progress = tasks.length === 0 ? 0 : Math.round((completedCount / tasks.length) * 100);
+  const visibleTasks = useMemo(
+    () => tasks.filter((task) => task.groupId === selectedGroupId),
+    [selectedGroupId, tasks],
+  );
+
+  const completedCount = visibleTasks.filter((task) => task.completed).length;
+  const progress = visibleTasks.length === 0 ? 0 : Math.round((completedCount / visibleTasks.length) * 100);
 
   return (
     <Card className="bg-black/60 border-zinc-800/80 backdrop-blur-xl relative overflow-hidden shadow-2xl flex flex-col h-full">
@@ -76,6 +114,24 @@ export function TodoList() {
       </CardHeader>
 
       <CardContent className="p-0 flex-1 flex flex-col">
+        <div className="px-6 pt-6 bg-zinc-900/20 border-b border-zinc-800/40">
+          <div className="space-y-2">
+            <Label htmlFor="group-select" className="text-zinc-300">Active Group</Label>
+            <select
+              id="group-select"
+              value={selectedGroupId}
+              onChange={(event) => setSelectedGroupId(event.target.value)}
+              className="w-full h-11 rounded-xl border border-zinc-800 bg-zinc-900 px-3 text-sm text-zinc-100 outline-none"
+            >
+              {groups.map((group) => (
+                <option key={group.id} value={group.id}>
+                  {group.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
         {/* Form area */}
         <form onSubmit={addTask} className="p-6 bg-zinc-900/30 border-b border-zinc-800/40 flex items-center gap-3 relative z-10">
           <div className="relative flex-1">
@@ -86,22 +142,22 @@ export function TodoList() {
               className="pl-4 h-12 bg-zinc-900/80 border-zinc-700/50 text-white placeholder:text-zinc-500 focus-visible:ring-primary/50 text-md rounded-xl"
             />
           </div>
-          <Button type="submit" size="icon" className="h-12 w-12 rounded-xl shadow-[0_0_20px_rgba(var(--primary),0.2)] bg-primary hover:bg-primary/90">
-            <Plus className="w-5 h-5" />
+          <Button disabled={isPending || !selectedGroupId} type="submit" size="icon" className="h-12 w-12 rounded-xl shadow-[0_0_20px_rgba(var(--primary),0.2)] bg-primary hover:bg-primary/90">
+            {isPending ? <Loader2 className="w-5 h-5 animate-spin" /> : <Plus className="w-5 h-5" />}
           </Button>
         </form>
 
         {/* List area */}
         <div className="p-6 flex-1 overflow-y-auto">
-          {tasks.length === 0 ? (
+          {visibleTasks.length === 0 ? (
             <div className="h-40 flex flex-col items-center justify-center text-zinc-500 space-y-4">
               <CalendarCheck className="w-12 h-12 opacity-20" />
-              <p>No tasks yet. Add one above to get started!</p>
+              <p>No tasks for this group today. Add one above to get started!</p>
             </div>
           ) : (
             <div className="space-y-3">
               <AnimatePresence>
-                {tasks.map((task) => (
+                {visibleTasks.map((task) => (
                   <motion.div
                     key={task.id}
                     initial={{ opacity: 0, y: 10 }}

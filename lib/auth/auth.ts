@@ -4,9 +4,7 @@ dotenv.config();
 import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { prisma } from "../db";
-
-
-console.log("DATABASE_URL:", process.env.DATABASE_URL)
+import { sendResetPasswordEmail } from "./email";
 
 const trustedOrigins = [
     process.env.BETTER_AUTH_BASE_URL || "http://localhost:3000",
@@ -31,7 +29,16 @@ const auth = betterAuth({
         },
     },
     emailAndPassword: {
-        enabled: true
+        enabled: true,
+        resetPasswordTokenExpiresIn: 60 * 60,
+        revokeSessionsOnPasswordReset: true,
+        sendResetPassword: async ({ user, url }) => {
+            await sendResetPasswordEmail({
+                email: user.email,
+                name: user.name,
+                url,
+            });
+        },
     },
     socialProviders: {
         google: {
