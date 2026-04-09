@@ -1,16 +1,28 @@
 import Link from "next/link";
 import { Compass, Plus } from "lucide-react";
 import { AdminGroupCard } from "@/components/shared/admin-group-card";
+import { DashboardInsights } from "@/components/shared/dashboard-insights";
 import { JoinGroupDialog } from "@/components/shared/join-group-dialog";
 import { Button } from "@/components/ui/button";
 import { prisma } from "@/lib/db";
-import { requireSessionUser } from "@/lib/server/studypact";
-import { calculateCompletionRate } from "@/lib/studypact";
+import { ensureRecurringTasksForUser, requireSessionUser } from "@/lib/server/studypact";
+import {
+  addDays,
+  calculateCompletionRate,
+  calculateLevel,
+  formatDayKey,
+  generateAiProgressFeedback,
+  getAchievementBadges,
+  startOfDay,
+} from "@/lib/studypact";
 
 export default async function DashboardPage() {
   const user = await requireSessionUser("/dashboard");
+  await ensureRecurringTasksForUser(user.id);
+  const today = startOfDay();
+  const weekStart = addDays(today, -6);
 
-  const [memberships, publicGroupCount] = await Promise.all([
+  const [memberships, publicGroupCount, recentTasks, recentPenalties, recentCheckIns] = await Promise.all([
     prisma.userGroup.findMany({
       where: {
         userId: user.id,
@@ -37,7 +49,101 @@ export default async function DashboardPage() {
         visibility: "PUBLIC",
       },
     }),
+    prisma.task.findMany({
+      where: {
+        userId: user.id,
+        day: {
+          gte: weekStart,
+          lte: today,
+        },
+      },
+      select: {
+        day: true,
+        status: true,
+      },
+    }),
+    prisma.penaltyEvent.findMany({
+      where: {
+        userId: user.id,
+      },
+      include: {
+        group: true,
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+      take: 4,
+    }),
+    prisma.checkIn.findMany({
+      where: {
+        userId: user.id,
+      },
+      include: {
+        group: true,
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+      take: 4,
+    }),
   ]);
+
+  const trend = Array.from({ length: 7 }, (_, index) => {
+    const day = addDays(weekStart, index);
+    const dayKey = formatDayKey(day);
+    const tasksForDay = recentTasks.filter((task) => formatDayKey(task.day) === dayKey);
+
+    return {
+      day: day.toLocaleDateString("en-IN", { weekday: "short" }),
+      completed: tasksForDay.filter((task) => task.status === "COMPLETED").length,
+      missed: tasksForDay.filter((task) => task.status === "MISSED").length,
+    };
+  });
+
+  const aggregate = memberships.reduce(
+    (summary, membership) => ({
+      points: summary.points + membership.points,
+      completions: summary.completions + membership.completions,
+      misses: summary.misses + membership.misses,
+      streak: Math.max(summary.streak, membership.streak),
+      role: (summary.role === "admin" || membership.role === "admin" ? "admin" : "member") as "member" | "admin",
+    }),
+    {
+      points: 0,
+      completions: 0,
+      misses: 0,
+      streak: 0,
+      role: "member" as "member" | "admin",
+    },
+  );
+  const level = calculateLevel(aggregate.points, aggregate.completions);
+  const badges = getAchievementBadges({
+    streak: aggregate.streak,
+    completions: aggregate.completions,
+    points: aggregate.points,
+    misses: aggregate.misses,
+    role: aggregate.role,
+  });
+  const aiFeedback = generateAiProgressFeedback({
+    completionRate: calculateCompletionRate(aggregate.completions, aggregate.misses),
+    streak: aggregate.streak,
+    misses: aggregate.misses,
+    points: aggregate.points,
+  });
+  const alerts = [
+    ...recentPenalties.map((penalty) => ({
+      id: `penalty-${penalty.id}`,
+      title: `Penalty in ${penalty.group.name}`,
+      detail: `-${penalty.points} pts • ${penalty.reason}`,
+    })),
+    ...recentCheckIns
+      .filter((checkIn) => checkIn.status === "FLAGGED" || checkIn.status === "REJECTED")
+      .map((checkIn) => ({
+        id: `checkin-${checkIn.id}`,
+        title: `Proof needs attention in ${checkIn.group.name}`,
+        detail: `Latest review status: ${checkIn.status.toLowerCase()}`,
+      })),
+  ].slice(0, 6);
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
@@ -67,6 +173,14 @@ export default async function DashboardPage() {
         </div>
       ) : null}
 
+      <DashboardInsights
+        trend={trend}
+        badges={badges}
+        aiFeedback={aiFeedback}
+        level={level}
+        alerts={alerts}
+      />
+
       {memberships.length > 0 ? (
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
           {memberships.map((membership) => (
@@ -79,6 +193,8 @@ export default async function DashboardPage() {
               memberCount={membership.group._count.users}
               fileCount={membership.group._count.startFiles + membership.group._count.endFiles}
               role={membership.role}
+              focusType={membership.group.focusType}
+              penaltyMode={membership.group.penaltyMode}
             />
           ))}
         </div>

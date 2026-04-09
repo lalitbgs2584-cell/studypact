@@ -7,16 +7,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import Link from "next/link";
-import { Sparkles, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
+import { StudyPactLogo } from "@/components/shared/studypact-logo";
 
 function SignupPageFallback() {
   return (
     <div className="min-h-screen grid lg:grid-cols-2 bg-black text-white">
       <div className="hidden lg:flex flex-col justify-between p-12 bg-zinc-900/50 border-r border-zinc-800 relative overflow-hidden order-2">
         <div className="absolute inset-0 bg-gradient-to-bl from-primary/20 via-zinc-950 to-black"></div>
-        <div className="relative z-10 flex items-center gap-3">
-          <Sparkles className="w-8 h-8 text-primary" />
-          <span className="font-bold text-2xl tracking-tight">StudyPact</span>
+        <div className="relative z-10">
+          <StudyPactLogo size="md" />
         </div>
       </div>
 
@@ -77,9 +77,8 @@ function SignupPageContent() {
         ></div>
         <div className="absolute inset-0 bg-gradient-to-t from-black via-black/80 to-transparent z-0"></div>
         <div className="absolute inset-0 bg-gradient-to-bl from-primary/30 to-emerald-500/30 z-0 mix-blend-overlay"></div>
-        <div className="relative z-10 flex items-center gap-3">
-          <Sparkles className="w-8 h-8 text-primary" />
-          <span className="font-bold text-2xl tracking-tight">StudyPact</span>
+        <div className="relative z-10">
+          <StudyPactLogo size="md" />
         </div>
         <div className="relative z-10">
           <h2 className="text-5xl font-bold tracking-tighter leading-tight mb-4">

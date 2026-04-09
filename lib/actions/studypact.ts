@@ -7,6 +7,7 @@ import { prisma } from "@/lib/db";
 import { Prisma } from "@/lib/generated/prisma/client";
 import {
   deleteUploadThingFile,
+  ensureRecurringTasksForUser,
   getInviteLinkState,
   platformResolveCheckIn,
   refreshMembershipReputation,
@@ -15,7 +16,13 @@ import {
   sendFlaggedSubmissionAlert,
   syncMissedCheckInPenalties,
 } from "@/lib/server/studypact";
-import { extractInviteToken, getInviteExpiryDate, randomInviteCode, startOfDay } from "@/lib/studypact";
+import {
+  evaluateProofSubmission,
+  extractInviteToken,
+  getInviteExpiryDate,
+  randomInviteCode,
+  startOfDay,
+} from "@/lib/studypact";
 
 async function getCurrentUser() {
   const session = await auth.api.getSession({
@@ -77,6 +84,9 @@ export async function createGroupAction(formData: FormData) {
     const maxMembersValue = Number(formData.get("maxMembers") || 8);
     const inviteExpiresInDaysValue = Number(formData.get("inviteExpiresInDays") || 7);
     const visibilityValue = String(formData.get("visibility") || "PRIVATE").toUpperCase();
+    const focusTypeValue = String(formData.get("focusType") || "GENERAL").toUpperCase();
+    const taskPostingModeValue = String(formData.get("taskPostingMode") || "ALL_MEMBERS").toUpperCase();
+    const penaltyModeValue = String(formData.get("penaltyMode") || "BURN").toUpperCase();
 
     if (!name) {
       return { success: false, error: "Group name is required" };
@@ -97,6 +107,11 @@ export async function createGroupAction(formData: FormData) {
         ? Math.floor(inviteExpiresInDaysValue)
         : 7;
     const visibility = visibilityValue === "PUBLIC" ? "PUBLIC" : "PRIVATE";
+    const focusType = ["GENERAL", "DSA", "DEVELOPMENT", "EXAM_PREP", "MACHINE_LEARNING", "CUSTOM"].includes(focusTypeValue)
+      ? focusTypeValue as "GENERAL" | "DSA" | "DEVELOPMENT" | "EXAM_PREP" | "MACHINE_LEARNING" | "CUSTOM"
+      : "GENERAL";
+    const taskPostingMode = taskPostingModeValue === "ADMINS_ONLY" ? "ADMINS_ONLY" : "ALL_MEMBERS";
+    const penaltyMode = penaltyModeValue === "POOL" ? "POOL" : "BURN";
 
     let createdGroup:
       | {
@@ -119,6 +134,9 @@ export async function createGroupAction(formData: FormData) {
               dailyPenalty,
               maxMembers,
               visibility,
+              focusType,
+              taskPostingMode,
+              penaltyMode,
               inviteCode,
               inviteExpiresAt: getInviteExpiryDate(inviteExpiresInDays),
               createdById: user.id,
@@ -170,6 +188,9 @@ export async function createGroupAction(formData: FormData) {
       inviteExpiresAt: createdGroup.inviteExpiresAt.toISOString(),
       groupId: createdGroup.id,
       visibility,
+      focusType,
+      taskPostingMode,
+      penaltyMode,
     };
   } catch (error) {
     return {
@@ -187,6 +208,9 @@ export async function createGroupFromInput(input: {
   maxMembers?: number;
   inviteExpiresInDays?: number;
   visibility?: "PRIVATE" | "PUBLIC";
+  focusType?: "GENERAL" | "DSA" | "DEVELOPMENT" | "EXAM_PREP" | "MACHINE_LEARNING" | "CUSTOM";
+  taskPostingMode?: "ADMINS_ONLY" | "ALL_MEMBERS";
+  penaltyMode?: "BURN" | "POOL";
 }) {
   const formData = new FormData();
   formData.set("name", input.name);
@@ -198,6 +222,9 @@ export async function createGroupFromInput(input: {
     formData.set("inviteExpiresInDays", String(input.inviteExpiresInDays));
   }
   if (input.visibility) formData.set("visibility", input.visibility);
+  if (input.focusType) formData.set("focusType", input.focusType);
+  if (input.taskPostingMode) formData.set("taskPostingMode", input.taskPostingMode);
+  if (input.penaltyMode) formData.set("penaltyMode", input.penaltyMode);
   return createGroupAction(formData);
 }
 
@@ -242,6 +269,7 @@ export async function joinGroupAction(inviteToken: string) {
   });
 
   await refreshMembershipReputation(user.id, inviteState.group.id);
+  await ensureRecurringTasksForUser(user.id);
   await refreshAppSurfaces(inviteState.group.id);
   return { success: true, groupId: inviteState.group.id };
 }
@@ -295,26 +323,183 @@ export async function joinPublicGroupAction(groupId: string) {
   });
 
   await refreshMembershipReputation(user.id, groupId);
+  await ensureRecurringTasksForUser(user.id);
   await refreshAppSurfaces(groupId);
   return { success: true, groupId };
 }
 
-export async function createTaskAction(input: { groupId: string; title: string; details?: string }) {
+export async function createTaskAction(input: {
+  groupId: string;
+  title: string;
+  details?: string;
+  category?: "DSA" | "DEVELOPMENT" | "REVISION" | "INTERVIEW_PREP" | "READING" | "CUSTOM";
+  targetMinutes?: number;
+  isRecurring?: boolean;
+  scope?: "PERSONAL" | "GROUP";
+}) {
   const user = await getCurrentUser();
-  await requireGroupMembership(user.id, input.groupId);
+  const membership = await requireGroupMembership(user.id, input.groupId);
 
   const title = input.title.trim();
   if (!title) {
     throw new Error("Task title is required");
   }
 
+  const today = startOfDay();
+  const scope = input.scope === "GROUP" ? "GROUP" : "PERSONAL";
+  const category = ["DSA", "DEVELOPMENT", "REVISION", "INTERVIEW_PREP", "READING", "CUSTOM"].includes(
+    input.category || "",
+  )
+    ? (input.category as "DSA" | "DEVELOPMENT" | "REVISION" | "INTERVIEW_PREP" | "READING" | "CUSTOM")
+    : "CUSTOM";
+  const targetMinutes =
+    input.targetMinutes && Number.isFinite(input.targetMinutes) && input.targetMinutes > 0
+      ? Math.floor(input.targetMinutes)
+      : null;
+
+  if (
+    scope === "GROUP" &&
+    membership.role !== "admin" &&
+    membership.group.taskPostingMode !== "ALL_MEMBERS"
+  ) {
+    throw new Error("Only admins can post checklist items for the whole group");
+  }
+
+  let templateId: string | null = null;
+  if (input.isRecurring) {
+    const existingTemplate = await prisma.taskTemplate.findFirst({
+      where: {
+        groupId: input.groupId,
+        isActive: true,
+        scope,
+        userId: scope === "PERSONAL" ? user.id : null,
+        title,
+        category,
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+    });
+
+    const template = existingTemplate
+      ? await prisma.taskTemplate.update({
+          where: { id: existingTemplate.id },
+          data: {
+            details: input.details?.trim() || null,
+            targetMinutes,
+            createdById: user.id,
+          },
+        })
+      : await prisma.taskTemplate.create({
+          data: {
+            title,
+            details: input.details?.trim() || null,
+            category,
+            targetMinutes,
+            scope,
+            userId: scope === "PERSONAL" ? user.id : null,
+            groupId: input.groupId,
+            createdById: user.id,
+          },
+        });
+
+    templateId = template.id;
+  }
+
+  if (scope === "GROUP") {
+    const memberIds = (
+      await prisma.userGroup.findMany({
+        where: { groupId: input.groupId },
+        select: { userId: true },
+      })
+    ).map((member) => member.userId);
+
+    const existingTasks = await prisma.task.findMany({
+      where: {
+        groupId: input.groupId,
+        day: today,
+        userId: {
+          in: memberIds,
+        },
+        ...(templateId
+          ? {
+              templateId,
+            }
+          : {
+              title,
+              category,
+            }),
+      },
+      select: {
+        id: true,
+        userId: true,
+        title: true,
+        groupId: true,
+      },
+    });
+
+    const existingUserIds = new Set(existingTasks.map((task) => task.userId));
+    const tasksToCreate = memberIds
+      .filter((memberId) => !existingUserIds.has(memberId))
+      .map((memberId) => ({
+        title,
+        details: input.details?.trim() || null,
+        category,
+        targetMinutes,
+        groupId: input.groupId,
+        userId: memberId,
+        day: today,
+        templateId,
+      }));
+
+    if (tasksToCreate.length) {
+      await prisma.task.createMany({
+        data: tasksToCreate,
+      });
+    }
+
+    const visibleTask =
+      existingTasks.find((task) => task.userId === user.id) ??
+      (await prisma.task.findFirst({
+        where: {
+          groupId: input.groupId,
+          userId: user.id,
+          day: today,
+          ...(templateId
+            ? {
+                templateId,
+              }
+            : {
+                title,
+                category,
+              }),
+        },
+        orderBy: {
+          createdAt: "desc",
+        },
+      }));
+
+    await refreshAppSurfaces(input.groupId);
+    return {
+      id: visibleTask?.id || crypto.randomUUID(),
+      title,
+      groupId: input.groupId,
+      category,
+      createdCount: tasksToCreate.length,
+      scope,
+    };
+  }
+
   const task = await prisma.task.create({
     data: {
       title,
       details: input.details?.trim() || null,
+      category,
+      targetMinutes,
       groupId: input.groupId,
       userId: user.id,
-      day: startOfDay(),
+      day: today,
+      templateId,
     },
   });
 
@@ -323,6 +508,9 @@ export async function createTaskAction(input: { groupId: string; title: string; 
     id: task.id,
     title: task.title,
     groupId: task.groupId,
+    category: task.category,
+    createdCount: 1,
+    scope,
   };
 }
 
@@ -370,6 +558,7 @@ export async function submitCheckInAction(input: {
   groupId: string;
   reflection?: string;
   proofText?: string;
+  proofLink?: string;
   startFileId: string;
   endFileId: string;
 }) {
@@ -427,6 +616,14 @@ export async function submitCheckInAction(input: {
   const penaltyCountToReverse = existingCheckIn?.penalties.length ?? 0;
   const totalPenaltyToReverse = existingCheckIn?.penalties.reduce((sum, penalty) => sum + penalty.points, 0) ?? 0;
   const missesToReverse = Math.min(membership.misses, penaltyCountToReverse);
+  const completedTaskCount = tasks.filter((task) => task.status === "COMPLETED").length;
+  const aiReview = evaluateProofSubmission({
+    reflection: input.reflection,
+    proofText: input.proofText,
+    proofLink: input.proofLink,
+    completedTaskCount,
+    totalTaskCount: tasks.length,
+  });
 
   const checkIn = await prisma.$transaction(async (tx) => {
     const nextCheckIn = existingCheckIn
@@ -435,6 +632,9 @@ export async function submitCheckInAction(input: {
           data: {
             reflection: input.reflection?.trim() || null,
             proofText: input.proofText?.trim() || null,
+            proofLink: input.proofLink?.trim() || null,
+            aiSummary: aiReview.summary,
+            aiConfidence: aiReview.confidence,
             status: "PENDING",
             verifiedAt: null,
             pointsAwarded: 0,
@@ -448,6 +648,9 @@ export async function submitCheckInAction(input: {
             day: today,
             reflection: input.reflection?.trim() || null,
             proofText: input.proofText?.trim() || null,
+            proofLink: input.proofLink?.trim() || null,
+            aiSummary: aiReview.summary,
+            aiConfidence: aiReview.confidence,
             status: "PENDING",
           },
         });
@@ -700,13 +903,23 @@ export async function setUserBlockedStatusAction(input: {
   revalidatePath("/admin");
 }
 
-export async function createGroupMessageAction(input: { groupId: string; content: string }) {
+export async function createGroupMessageAction(input: {
+  groupId: string;
+  content?: string;
+  imageUrl?: string;
+  imageName?: string;
+  imageStorageKey?: string;
+}) {
   const user = await getCurrentUser();
   await requireGroupMembership(user.id, input.groupId);
 
-  const content = input.content.trim();
-  if (!content) {
-    throw new Error("Message cannot be empty");
+  const content = input.content?.trim() || null;
+  const imageUrl = input.imageUrl?.trim() || null;
+  const imageName = input.imageName?.trim() || null;
+  const imageStorageKey = input.imageStorageKey?.trim() || null;
+
+  if (!content && !imageUrl) {
+    throw new Error("Add a message or upload a photo");
   }
 
   await prisma.groupMessage.create({
@@ -714,10 +927,64 @@ export async function createGroupMessageAction(input: { groupId: string; content
       groupId: input.groupId,
       userId: user.id,
       content,
+      imageUrl,
+      imageName,
+      imageStorageKey,
     },
   });
 
   await refreshAppSurfaces(input.groupId);
+}
+
+export async function toggleGroupMessageReactionAction(input: {
+  messageId: string;
+  kind: "FIRE" | "CLAP" | "TARGET" | "ROCKET";
+}) {
+  const user = await getCurrentUser();
+  const message = await prisma.groupMessage.findUnique({
+    where: {
+      id: input.messageId,
+    },
+    select: {
+      id: true,
+      groupId: true,
+    },
+  });
+
+  if (!message) {
+    throw new Error("Message not found");
+  }
+
+  await requireGroupMembership(user.id, message.groupId);
+
+  const existingReaction = await prisma.groupMessageReaction.findFirst({
+    where: {
+      messageId: input.messageId,
+      userId: user.id,
+      kind: input.kind,
+    },
+    select: {
+      id: true,
+    },
+  });
+
+  if (existingReaction) {
+    await prisma.groupMessageReaction.delete({
+      where: {
+        id: existingReaction.id,
+      },
+    });
+  } else {
+    await prisma.groupMessageReaction.create({
+      data: {
+        messageId: input.messageId,
+        userId: user.id,
+        kind: input.kind,
+      },
+    });
+  }
+
+  await refreshAppSurfaces(message.groupId);
 }
 
 export async function requestPasswordResetAction(input: { email: string; redirectTo?: string }) {

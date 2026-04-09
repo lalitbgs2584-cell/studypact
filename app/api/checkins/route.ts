@@ -76,6 +76,7 @@ export async function POST(request: Request) {
       groupId?: string;
       reflection?: string;
       proofText?: string;
+      proofLink?: string;
       startFileId?: string;
       endFileId?: string;
     };
@@ -94,6 +95,7 @@ export async function POST(request: Request) {
       groupId: body.groupId,
       reflection: body.reflection,
       proofText: body.proofText,
+      proofLink: body.proofLink,
       startFileId: body.startFileId,
       endFileId: body.endFileId,
     });

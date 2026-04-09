@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { Sparkles, ArrowRight } from "lucide-react";
+import { ArrowRight } from "lucide-react";
+import { StudyPactLogo } from "@/components/shared/studypact-logo";
 
 export default function Home() {
   return (
@@ -12,8 +13,7 @@ export default function Home() {
       {/* Navbar */}
       <header className="flex items-center justify-between p-6 lg:px-12 backdrop-blur-sm border-b border-white/5 z-10 w-full relative">
         <div className="flex items-center gap-2">
-          <Sparkles className="w-6 h-6 text-primary" />
-          <span className="font-bold text-xl tracking-tight">StudyPact</span>
+          <StudyPactLogo size="sm" labelClassName="text-xl" />
         </div>
         <div className="flex gap-4">
           <Link href="/login">

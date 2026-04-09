@@ -264,7 +264,14 @@ export default async function AdminPage() {
             <div className="space-y-3 max-h-[28rem] overflow-y-auto">
               {messages.map((message) => (
                 <div key={message.id} className="rounded-xl border border-zinc-800 bg-zinc-900/20 p-3">
-                  <p className="text-sm text-white">{message.content}</p>
+                  <p className="text-sm text-white">{message.content || "Shared a photo with the group."}</p>
+                  {message.imageUrl ? (
+                    <img
+                      src={message.imageUrl}
+                      alt={message.imageName || "Group post image"}
+                      className="mt-3 max-h-40 w-full rounded-lg border border-zinc-800 object-cover"
+                    />
+                  ) : null}
                   <p className="mt-2 text-xs text-zinc-500">{message.user.name} | {message.group.name}</p>
                 </div>
               ))}

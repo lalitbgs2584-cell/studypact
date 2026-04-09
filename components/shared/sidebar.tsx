@@ -3,8 +3,9 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { authClient } from "@/lib/auth/client";
-import { LayoutDashboard, Shield, Goal, User, LogOut, ListTodo, Plus, Compass } from "lucide-react";
+import { LayoutDashboard, Shield, User, LogOut, ListTodo, Plus, Compass, Trophy } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { StudyPactLogo } from "@/components/shared/studypact-logo";
 
 export function Sidebar() {
   const pathname = usePathname();
@@ -16,6 +17,7 @@ export function Sidebar() {
   const isAdmin = user?.role === "admin";
   const routes = [
     { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+    { href: "/leaderboards", label: "Leaderboards", icon: Trophy },
     { href: "/groups/create", label: "Create Group", icon: Plus },
     { href: "/groups/discover", label: "Discover Groups", icon: Compass },
     { href: "/tasks", label: "My Tasks", icon: ListTodo },
@@ -31,11 +33,8 @@ export function Sidebar() {
   return (
     <aside className="w-64 lg:w-72 border-r border-zinc-800/50 bg-black/40 backdrop-blur-xl flex flex-col hidden md:flex min-h-screen">
       <div className="p-6">
-        <Link href="/dashboard" className="flex items-center gap-3 group">
-          <div className="bg-primary/20 p-2 rounded-xl border border-primary/30 group-hover:bg-primary/30 transition-all shadow-[0_0_20px_rgba(var(--primary),0.3)]">
-            <Goal className="w-6 h-6 text-primary" />
-          </div>
-          <span className="text-xl font-bold tracking-tight text-white">StudyPact</span>
+        <Link href="/dashboard" className="group">
+          <StudyPactLogo size="sm" labelClassName="text-xl" />
         </Link>
       </div>
 

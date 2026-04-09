@@ -30,9 +30,59 @@ enum GroupVisibility {
   PUBLIC
 }
 
+enum GroupFocusType {
+  GENERAL
+  DSA
+  DEVELOPMENT
+  EXAM_PREP
+  MACHINE_LEARNING
+  CUSTOM
+}
+
+enum TaskPostingMode {
+  ADMINS_ONLY
+  ALL_MEMBERS
+}
+
+enum PenaltyMode {
+  BURN
+  POOL
+}
+
+enum UserRole {
+  member
+  admin
+}
+
+enum GroupRole {
+  member
+  admin
+}
+
+enum TaskCategory {
+  DSA
+  DEVELOPMENT
+  REVISION
+  INTERVIEW_PREP
+  READING
+  CUSTOM
+}
+
+enum TaskScope {
+  PERSONAL
+  GROUP
+}
+
 enum NotificationKind {
   PRE_DEADLINE_NUDGE
   FLAGGED_SUBMISSION
+}
+
+enum GroupMessageReactionKind {
+  FIRE
+  CLAP
+  TARGET
+  ROCKET
 }
 
 model User {
@@ -43,7 +93,7 @@ model User {
   image                   String?
   createdAt               DateTime                @default(now())
   updatedAt               DateTime                @updatedAt
-  role                    String?
+  role                    UserRole                @default(member)
   isBlocked               Boolean?
   penaltyCount            Int                     @default(0)
   sessions                Session[]
@@ -58,6 +108,9 @@ model User {
   startFiles              StartFile[]
   endFiles                EndFile[]
   notificationLogs        NotificationLog[]
+  taskTemplates           TaskTemplate[]          @relation("UserTaskTemplates")
+  createdTaskTemplates    TaskTemplate[]          @relation("CreatedTaskTemplates")
+  messageReactions        GroupMessageReaction[]
 
   @@unique([email])
   @@map("user")
@@ -117,6 +170,9 @@ model Group {
   description       String?
   link              String?
   visibility        GroupVisibility         @default(PRIVATE)
+  focusType         GroupFocusType          @default(GENERAL)
+  taskPostingMode   TaskPostingMode         @default(ALL_MEMBERS)
+  penaltyMode       PenaltyMode             @default(BURN)
   inviteCode        String                  @unique
   inviteExpiresAt   DateTime
   maxMembers        Int                     @default(8)
@@ -133,6 +189,7 @@ model Group {
   startFiles        StartFile[]
   endFiles          EndFile[]
   notificationLogs  NotificationLog[]
+  taskTemplates     TaskTemplate[]
 
   @@index([createdById])
   @@index([visibility, createdAt])
@@ -143,7 +200,7 @@ model UserGroup {
   userId          String
   groupId         String
   joinedAt        DateTime @default(now())
-  role            String?  @default("member")
+  role            GroupRole @default(member)
   points          Int      @default(0)
   streak          Int      @default(0)
   completions     Int      @default(0)
@@ -164,6 +221,8 @@ model Task {
   id          String      @id @default(cuid())
   title       String
   details     String?
+  category    TaskCategory @default(CUSTOM)
+  targetMinutes Int?
   status      TaskStatus  @default(PENDING)
   day         DateTime
   createdAt   DateTime    @default(now())
@@ -172,12 +231,15 @@ model Task {
   userId      String
   groupId     String
   checkInId   String?
+  templateId  String?
   user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
   group       Group       @relation(fields: [groupId], references: [id], onDelete: Cascade)
   checkIn     CheckIn?    @relation(fields: [checkInId], references: [id], onDelete: SetNull)
+  template    TaskTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
 
   @@index([userId, day])
   @@index([groupId, day])
+  @@index([templateId, day], map: "task_template_day_idx")
   @@map("task")
 }
 
@@ -186,6 +248,9 @@ model CheckIn {
   day           DateTime
   reflection    String?
   proofText     String?
+  proofLink     String?
+  aiSummary     String?
+  aiConfidence  Int?
   status        CheckInStatus           @default(PENDING)
   pointsAwarded Int                     @default(0)
   penaltyApplied Int                    @default(0)
@@ -242,18 +307,45 @@ model PenaltyEvent {
 }
 
 model GroupMessage {
-  id        String   @id @default(cuid())
-  content   String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  userId    String
-  groupId   String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  group     Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  id              String                 @id @default(cuid())
+  content         String?
+  imageUrl        String?
+  imageName       String?
+  imageStorageKey String?
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+  userId          String
+  groupId         String
+  user            User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  group           Group                  @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  reactions       GroupMessageReaction[]
 
   @@index([groupId, createdAt])
   @@index([userId, createdAt])
   @@map("group_message")
+}
+
+model TaskTemplate {
+  id            String      @id @default(cuid())
+  title         String
+  details       String?
+  category      TaskCategory @default(CUSTOM)
+  targetMinutes Int?
+  scope         TaskScope   @default(PERSONAL)
+  isActive      Boolean     @default(true)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  userId        String?
+  groupId       String
+  createdById   String
+  user          User?       @relation("UserTaskTemplates", fields: [userId], references: [id], onDelete: Cascade)
+  group         Group       @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  createdBy     User        @relation("CreatedTaskTemplates", fields: [createdById], references: [id], onDelete: Cascade)
+  tasks         Task[]
+
+  @@index([groupId, scope, isActive])
+  @@index([userId, isActive])
+  @@map("task_template")
 }
 
 model StartFile {
@@ -308,4 +400,19 @@ model NotificationLog {
   @@index([userId, sentAt])
   @@index([groupId, sentAt])
   @@map("notification_log")
+}
+
+model GroupMessageReaction {
+  id        String                   @id @default(cuid())
+  kind      GroupMessageReactionKind
+  createdAt DateTime                 @default(now())
+  userId    String
+  messageId String
+  user      User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  message   GroupMessage             @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId, kind])
+  @@index([messageId])
+  @@index([userId])
+  @@map("group_message_reaction")
 }

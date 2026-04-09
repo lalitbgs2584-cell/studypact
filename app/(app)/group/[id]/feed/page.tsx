@@ -1,11 +1,18 @@
-import { Trophy, Users } from "lucide-react";
+import { CheckCircle2, Clock3, ShieldAlert, Trophy, Users } from "lucide-react";
 import { notFound } from "next/navigation";
 import { CheckinCard } from "@/components/shared/checkin-card";
 import { CheckinForm } from "@/components/shared/checkin-form";
 import { GroupChatPanel } from "@/components/shared/group-chat-panel";
 import { GroupNav } from "@/components/shared/group-nav";
 import { prisma } from "@/lib/db";
-import { formatDayKey, startOfDay } from "@/lib/studypact";
+import {
+  addDays,
+  formatDayKey,
+  getGroupFocusLabel,
+  getPenaltyModeLabel,
+  getTaskPostingModeLabel,
+  startOfDay,
+} from "@/lib/studypact";
 import { getGroupMembership, requireSessionUser } from "@/lib/server/studypact";
 
 type FeedPageProps = {
@@ -24,91 +31,204 @@ export default async function GroupFeedPage({ params, searchParams }: FeedPagePr
   }
 
   const today = startOfDay();
+  const weekStart = addDays(today, -6);
 
-  const group = await prisma.group.findUnique({
-    where: {
-      id,
-    },
-    include: {
-      users: {
-        include: {
-          user: true,
-        },
-      },
-      checkIns: {
-        include: {
-          user: true,
-          tasks: true,
-          verifications: true,
-          startFiles: {
-            orderBy: { uploadedAt: "desc" },
+  const [group, todayCheckIns, weeklyCheckIns] = await Promise.all([
+    prisma.group.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        name: true,
+        description: true,
+        focusType: true,
+        penaltyMode: true,
+        taskPostingMode: true,
+        dailyPenalty: true,
+        users: {
+          select: {
+            userId: true,
+            joinedAt: true,
+            role: true,
+            points: true,
+            streak: true,
+            completions: true,
+            misses: true,
+            reputationScore: true,
+            user: {
+              select: {
+                name: true,
+              },
+            },
           },
-          endFiles: {
-            orderBy: { uploadedAt: "desc" },
+        },
+        checkIns: {
+          orderBy: {
+            createdAt: "desc",
+          },
+          take: 12,
+          select: {
+            id: true,
+            userId: true,
+            day: true,
+            status: true,
+            createdAt: true,
+            reflection: true,
+            proofText: true,
+            proofLink: true,
+            aiSummary: true,
+            aiConfidence: true,
+            user: {
+              select: {
+                name: true,
+              },
+            },
+            tasks: {
+              select: {
+                title: true,
+              },
+            },
+            startFiles: {
+              orderBy: {
+                uploadedAt: "desc",
+              },
+              take: 1,
+              select: {
+                url: true,
+              },
+            },
+            endFiles: {
+              orderBy: {
+                uploadedAt: "desc",
+              },
+              take: 1,
+              select: {
+                url: true,
+              },
+            },
           },
         },
-        orderBy: {
-          createdAt: "desc",
+        messages: {
+          orderBy: {
+            createdAt: "desc",
+          },
+          take: 20,
+          select: {
+            id: true,
+            content: true,
+            createdAt: true,
+            imageName: true,
+            imageUrl: true,
+            user: {
+              select: {
+                name: true,
+              },
+            },
+            reactions: {
+              select: {
+                kind: true,
+                userId: true,
+              },
+            },
+          },
         },
-        take: 12,
+        penaltyEvents: {
+          orderBy: {
+            createdAt: "desc",
+          },
+          take: 10,
+          select: {
+            id: true,
+            points: true,
+            reason: true,
+            createdAt: true,
+            user: {
+              select: {
+                name: true,
+              },
+            },
+          },
+        },
+        startFiles: {
+          orderBy: {
+            uploadedAt: "desc",
+          },
+          take: 10,
+          select: {
+            id: true,
+            name: true,
+            uploadedAt: true,
+            user: {
+              select: {
+                name: true,
+              },
+            },
+          },
+        },
+        endFiles: {
+          orderBy: {
+            uploadedAt: "desc",
+          },
+          take: 10,
+          select: {
+            id: true,
+            name: true,
+            uploadedAt: true,
+            user: {
+              select: {
+                name: true,
+              },
+            },
+          },
+        },
       },
-      messages: {
-        include: {
-          user: true,
-        },
-        orderBy: {
-          createdAt: "desc",
-        },
-        take: 20,
+    }),
+    prisma.checkIn.findMany({
+      where: {
+        groupId: id,
+        day: today,
       },
-      penaltyEvents: {
-        include: {
-          user: true,
-        },
-        orderBy: {
-          createdAt: "desc",
-        },
-        take: 10,
+      orderBy: {
+        createdAt: "asc",
       },
-      startFiles: {
-        include: {
-          user: true,
-        },
-        orderBy: {
-          uploadedAt: "desc",
-        },
-        take: 10,
+      select: {
+        userId: true,
+        status: true,
+        createdAt: true,
       },
-      endFiles: {
-        include: {
-          user: true,
+    }),
+    prisma.checkIn.findMany({
+      where: {
+        groupId: id,
+        day: {
+          gte: weekStart,
+          lte: today,
         },
-        orderBy: {
-          uploadedAt: "desc",
-        },
-        take: 10,
       },
-    },
-  });
+      select: {
+        userId: true,
+        status: true,
+      },
+    }),
+  ]);
 
   if (!group) {
     notFound();
   }
 
-  const todayCheckIns = await prisma.checkIn.findMany({
-    where: {
-      groupId: id,
-      day: today,
-    },
-    include: {
-      user: true,
-    },
-    orderBy: {
-      createdAt: "asc",
-    },
-  });
-
   const todayCheckInByUserId = new Map(todayCheckIns.map((checkIn) => [checkIn.userId, checkIn]));
+  const weeklyStatsByUserId = new Map<string, { completed: number; flagged: number }>();
+
+  for (const checkIn of weeklyCheckIns) {
+    const current = weeklyStatsByUserId.get(checkIn.userId) ?? { completed: 0, flagged: 0 };
+    if (checkIn.status === "APPROVED") {
+      current.completed += 1;
+    }
+    if (checkIn.status === "FLAGGED" || checkIn.status === "REJECTED") {
+      current.flagged += 1;
+    }
+    weeklyStatsByUserId.set(checkIn.userId, current);
+  }
+
   const leaderboardMembers = [...group.users].sort((left, right) => {
     if (board === "early") {
       const leftCheckIn = todayCheckInByUserId.get(left.userId);
@@ -143,6 +263,61 @@ export default async function GroupFeedPage({ params, searchParams }: FeedPagePr
     return right.streak - left.streak;
   });
 
+  const weeklyLeaderboard = [...group.users]
+    .sort((left, right) => {
+      const leftStats = weeklyStatsByUserId.get(left.userId) ?? { completed: 0, flagged: 0 };
+      const rightStats = weeklyStatsByUserId.get(right.userId) ?? { completed: 0, flagged: 0 };
+
+      if (rightStats.completed !== leftStats.completed) {
+        return rightStats.completed - leftStats.completed;
+      }
+
+      if (leftStats.flagged !== rightStats.flagged) {
+        return leftStats.flagged - rightStats.flagged;
+      }
+
+      return right.points - left.points;
+    })
+    .slice(0, 5);
+
+  const weeklyPenaltyPool = group.penaltyEvents
+    .filter((penalty) => penalty.createdAt >= weekStart)
+    .reduce((sum, penalty) => sum + penalty.points, 0);
+
+  const todayApprovedCount = todayCheckIns.filter((checkIn) => checkIn.status === "APPROVED").length;
+  const todayPendingCount = todayCheckIns.filter((checkIn) => checkIn.status === "PENDING").length;
+
+  const overviewCards = [
+    {
+      label: "Members",
+      value: group.users.length,
+      detail: "Active accountability partners",
+      icon: Users,
+      tone: "border-sky-500/20 bg-sky-500/10 text-sky-300",
+    },
+    {
+      label: "Today's Submissions",
+      value: todayCheckIns.length,
+      detail: "Check-ins submitted so far",
+      icon: CheckCircle2,
+      tone: "border-emerald-500/20 bg-emerald-500/10 text-emerald-300",
+    },
+    {
+      label: "Pending Reviews",
+      value: todayPendingCount,
+      detail: "Submissions waiting on peers",
+      icon: Clock3,
+      tone: "border-amber-500/20 bg-amber-500/10 text-amber-300",
+    },
+    {
+      label: "Weekly Penalties",
+      value: `${weeklyPenaltyPool} pts`,
+      detail: group.penaltyMode === "POOL" ? "Current reward pool size" : "Points burned this week",
+      icon: ShieldAlert,
+      tone: "border-rose-500/20 bg-rose-500/10 text-rose-300",
+    },
+  ];
+
   const recentActivity = [
     ...group.users.map((member) => ({
       id: `join-${member.userId}-${member.joinedAt.toISOString()}`,
@@ -161,6 +336,12 @@ export default async function GroupFeedPage({ params, searchParams }: FeedPagePr
       title: `${penalty.user.name} was penalized`,
       detail: `-${penalty.points} pts | ${penalty.reason}`,
       timestamp: penalty.createdAt,
+    })),
+    ...group.messages.map((message) => ({
+      id: `message-${message.id}`,
+      title: `${message.user.name} posted in the group`,
+      detail: message.content || message.imageName || "Shared a photo with the group",
+      timestamp: message.createdAt,
     })),
     ...group.startFiles.map((file) => ({
       id: `start-${file.id}`,
@@ -187,109 +368,253 @@ export default async function GroupFeedPage({ params, searchParams }: FeedPagePr
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-white mb-1">{group.name}</h1>
           <p className="text-zinc-400">{group.description || "See what your peers are working on today."}</p>
+          <div className="mt-3 flex flex-wrap gap-2 text-xs">
+            <span className="rounded-full border border-zinc-700 bg-zinc-900 px-3 py-1 text-zinc-300">
+              {getGroupFocusLabel(group.focusType)}
+            </span>
+            <span className="rounded-full border border-zinc-700 bg-zinc-900 px-3 py-1 text-zinc-300">
+              {getPenaltyModeLabel(group.penaltyMode)}
+            </span>
+            <span className="rounded-full border border-zinc-700 bg-zinc-900 px-3 py-1 text-zinc-300">
+              {getTaskPostingModeLabel(group.taskPostingMode)}
+            </span>
+          </div>
         </div>
       </div>
 
       <GroupNav groupId={id} active="feed" />
 
-      <div className="grid lg:grid-cols-3 gap-8">
-        <div className="lg:col-span-2 space-y-6">
-          {group.checkIns.length > 0 ? (
-            group.checkIns.map((checkIn) => (
-              <CheckinCard
-                key={checkIn.id}
-                checkInId={checkIn.id}
-                user={checkIn.user.name}
-                time={formatDayKey(checkIn.day)}
-                status={checkIn.status}
-                reflection={checkIn.reflection || "Submitted work proof for today."}
-                proofText={checkIn.proofText}
-                tasks={checkIn.tasks.map((task) => task.title)}
-                startUrl={checkIn.startFiles[0]?.url}
-                endUrl={checkIn.endFiles[0]?.url}
-                canReview={checkIn.userId !== user.id}
-              />
-            ))
-          ) : (
-            <div className="rounded-2xl border border-dashed border-zinc-800 bg-black/20 px-6 py-12 text-center text-zinc-400">
-              No submissions yet. Be the first one to post today&apos;s proof.
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        {overviewCards.map((card) => {
+          const Icon = card.icon;
+
+          return (
+            <div
+              key={card.label}
+              className="rounded-2xl border border-zinc-800/70 bg-black/20 p-5 backdrop-blur-lg"
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                    {card.label}
+                  </p>
+                  <p className="mt-3 text-3xl font-bold text-white">{card.value}</p>
+                  <p className="mt-1 text-sm text-zinc-500">{card.detail}</p>
+                </div>
+                <div className={`rounded-2xl border p-3 ${card.tone}`}>
+                  <Icon className="w-5 h-5" />
+                </div>
+              </div>
             </div>
-          )}
+          );
+        })}
+      </div>
+
+      <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.08fr)_minmax(360px,0.92fr)]">
+        <div className="space-y-6">
+          <div className="rounded-3xl border border-zinc-800/70 bg-black/20 p-5 backdrop-blur-lg">
+            <div className="flex flex-col gap-4 border-b border-zinc-800/60 pb-5 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <h2 className="text-xl font-semibold text-zinc-100">Latest Submissions</h2>
+                <p className="mt-1 text-sm text-zinc-500">
+                  Track proof quality, review status, and the latest work from the group.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2 text-xs">
+                <span className="rounded-full border border-zinc-700 bg-zinc-900 px-3 py-1 text-zinc-300">
+                  {group.checkIns.length} recent check-ins
+                </span>
+                <span className="rounded-full border border-zinc-700 bg-zinc-900 px-3 py-1 text-zinc-300">
+                  {todayApprovedCount} approved today
+                </span>
+                <span className="rounded-full border border-zinc-700 bg-zinc-900 px-3 py-1 text-zinc-300">
+                  {todayPendingCount} pending review
+                </span>
+              </div>
+            </div>
+
+            <div className="mt-5 space-y-5">
+              {group.checkIns.length > 0 ? (
+                group.checkIns.map((checkIn) => (
+                  <CheckinCard
+                    key={checkIn.id}
+                    checkInId={checkIn.id}
+                    user={checkIn.user.name}
+                    time={formatDayKey(checkIn.day)}
+                    status={checkIn.status}
+                    reflection={checkIn.reflection || "Submitted work proof for today."}
+                    proofText={checkIn.proofText}
+                    proofLink={checkIn.proofLink}
+                    aiSummary={checkIn.aiSummary}
+                    aiConfidence={checkIn.aiConfidence}
+                    tasks={checkIn.tasks.map((task) => task.title)}
+                    startUrl={checkIn.startFiles[0]?.url}
+                    endUrl={checkIn.endFiles[0]?.url}
+                    canReview={checkIn.userId !== user.id}
+                  />
+                ))
+              ) : (
+                <div className="rounded-2xl border border-dashed border-zinc-800 bg-black/20 px-6 py-12 text-center text-zinc-400">
+                  No submissions yet. Be the first one to post today&apos;s proof.
+                </div>
+              )}
+            </div>
+          </div>
         </div>
 
-        <div className="lg:col-span-1 sticky top-6 space-y-6">
+        <div className="space-y-6">
+          <div className="rounded-3xl border border-zinc-800/70 bg-black/20 p-5 backdrop-blur-lg">
+            <div className="mb-4 flex items-center justify-between gap-4">
+              <div>
+                <h3 className="text-lg font-semibold text-zinc-100">Today&apos;s Check-in</h3>
+                <p className="text-sm text-zinc-500">Upload both proofs early so review goes smoothly.</p>
+              </div>
+              <span className="rounded-full border border-zinc-700 bg-zinc-900 px-3 py-1 text-xs text-zinc-300">
+                Before midnight
+              </span>
+            </div>
+            <CheckinForm groupId={id} />
+          </div>
+
           <GroupChatPanel
             groupId={id}
             messages={group.messages.map((message) => ({
               id: message.id,
               content: message.content,
               createdAt: message.createdAt,
+              imageName: message.imageName,
+              imageUrl: message.imageUrl,
               userName: message.user.name,
+              reactions: (["FIRE", "CLAP", "TARGET", "ROCKET"] as const).map((kind) => ({
+                kind,
+                count: message.reactions.filter((reaction) => reaction.kind === kind).length,
+                active: message.reactions.some(
+                  (reaction) => reaction.kind === kind && reaction.userId === user.id,
+                ),
+              })),
             }))}
           />
 
+          <div className="grid gap-6 md:grid-cols-2">
+            <div className="rounded-2xl border border-zinc-800/60 bg-black/20 p-5 backdrop-blur-lg">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="p-2 rounded-xl bg-amber-500/10 border border-amber-500/20">
+                  <Trophy className="w-5 h-5 text-amber-400" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-zinc-100">Leaderboard</h3>
+                  <p className="text-xs text-zinc-500">
+                    {board === "early" ? "Today's fastest submissions" : "Points, streak, and rep"}
+                  </p>
+                </div>
+              </div>
+
+              <div className="mb-4 flex flex-wrap gap-2">
+                <a
+                  href={`/group/${id}/feed?board=points`}
+                  className={`rounded-full px-3 py-1 text-xs font-medium ${board === "points" ? "bg-primary text-primary-foreground" : "bg-zinc-900 text-zinc-400 hover:text-zinc-100"}`}
+                >
+                  Points Board
+                </a>
+                <a
+                  href={`/group/${id}/feed?board=early`}
+                  className={`rounded-full px-3 py-1 text-xs font-medium ${board === "early" ? "bg-primary text-primary-foreground" : "bg-zinc-900 text-zinc-400 hover:text-zinc-100"}`}
+                >
+                  Early Finishers
+                </a>
+              </div>
+
+              <div className="space-y-3">
+                {leaderboardMembers.slice(0, 5).map((member, index) => {
+                  const finish = todayCheckInByUserId.get(member.userId);
+
+                  return (
+                    <div key={member.userId} className="flex items-center justify-between rounded-xl border border-zinc-800 bg-zinc-900/40 px-3 py-3">
+                      <div>
+                        <p className="text-sm font-medium text-white">{index + 1}. {member.user.name}</p>
+                        {board === "early" ? (
+                          <p className="text-xs text-zinc-500">
+                            {finish ? `Submitted ${finish.createdAt.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}` : "No submission yet"} | {member.streak} streak
+                          </p>
+                        ) : (
+                          <p className="text-xs text-zinc-500">
+                            {member.completions} completions | {member.misses} misses | {member.reputationScore} rep
+                          </p>
+                        )}
+                      </div>
+                      <div className="text-right">
+                        {board === "early" ? (
+                          <>
+                            <p className="text-sm font-semibold text-primary">{finish ? `#${index + 1} today` : "Pending"}</p>
+                            <p className="text-xs text-zinc-500">{member.points} pts | {member.reputationScore} rep</p>
+                          </>
+                        ) : (
+                          <>
+                            <p className="text-sm font-semibold text-primary">{member.points} pts</p>
+                            <p className="text-xs text-zinc-500">{member.streak} streak</p>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-zinc-800/60 bg-black/20 p-5 backdrop-blur-lg">
+              <h3 className="text-lg font-semibold text-zinc-100 mb-2">Penalty Engine</h3>
+              <p className="text-sm text-zinc-400">
+                Weekly {group.penaltyMode === "POOL" ? "reward pool" : "burn total"}: {weeklyPenaltyPool} pts
+              </p>
+              <p className="mt-2 text-xs text-zinc-500">
+                Daily penalty is {group.dailyPenalty} pts per missed or flagged day.
+              </p>
+              <div className="mt-4 grid grid-cols-2 gap-3">
+                <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 px-3 py-3">
+                  <p className="text-xs uppercase tracking-wider text-zinc-500">Approved today</p>
+                  <p className="mt-2 text-2xl font-bold text-white">{todayApprovedCount}</p>
+                </div>
+                <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 px-3 py-3">
+                  <p className="text-xs uppercase tracking-wider text-zinc-500">Pending today</p>
+                  <p className="mt-2 text-2xl font-bold text-white">{todayPendingCount}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div className="rounded-2xl border border-zinc-800/60 bg-black/20 p-5 backdrop-blur-lg">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="p-2 rounded-xl bg-amber-500/10 border border-amber-500/20">
-                <Trophy className="w-5 h-5 text-amber-400" />
-              </div>
+            <h3 className="text-lg font-semibold text-zinc-100 mb-4">Weekly and All-time</h3>
+            <div className="grid gap-4 md:grid-cols-2">
               <div>
-                <h3 className="text-lg font-semibold text-zinc-100">Leaderboard</h3>
-                <p className="text-xs text-zinc-500">
-                  {board === "early" ? "Today's fastest submissions ranked with streak context" : "Points, streak, and reputation"}
-                </p>
+                <p className="text-xs uppercase tracking-wider text-zinc-500 mb-2">Weekly leaderboard</p>
+                <div className="space-y-2">
+                  {weeklyLeaderboard.map((member, index) => {
+                    const stats = weeklyStatsByUserId.get(member.userId) ?? { completed: 0, flagged: 0 };
+                    return (
+                      <div key={`${member.userId}-weekly`} className="rounded-xl border border-zinc-800 bg-zinc-900/40 px-3 py-3">
+                        <p className="text-sm font-medium text-white">{index + 1}. {member.user.name}</p>
+                        <p className="text-xs text-zinc-500">
+                          {stats.completed} approved | {stats.flagged} flagged | {member.points} pts
+                        </p>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
 
-            <div className="mb-4 flex flex-wrap gap-2">
-              <a
-                href={`/group/${id}/feed?board=points`}
-                className={`rounded-full px-3 py-1 text-xs font-medium ${board === "points" ? "bg-primary text-primary-foreground" : "bg-zinc-900 text-zinc-400 hover:text-zinc-100"}`}
-              >
-                Points Board
-              </a>
-              <a
-                href={`/group/${id}/feed?board=early`}
-                className={`rounded-full px-3 py-1 text-xs font-medium ${board === "early" ? "bg-primary text-primary-foreground" : "bg-zinc-900 text-zinc-400 hover:text-zinc-100"}`}
-              >
-                Early Finishers
-              </a>
-            </div>
-
-            <div className="space-y-3">
-              {leaderboardMembers.slice(0, 5).map((member, index) => {
-                const finish = todayCheckInByUserId.get(member.userId);
-
-                return (
-                  <div key={member.userId} className="flex items-center justify-between rounded-xl border border-zinc-800 bg-zinc-900/40 px-3 py-3">
-                    <div>
+              <div>
+                <p className="text-xs uppercase tracking-wider text-zinc-500 mb-2">All-time leaderboard</p>
+                <div className="space-y-2">
+                  {leaderboardMembers.slice(0, 3).map((member, index) => (
+                    <div key={`${member.userId}-alltime`} className="rounded-xl border border-zinc-800 bg-zinc-900/40 px-3 py-3">
                       <p className="text-sm font-medium text-white">{index + 1}. {member.user.name}</p>
-                      {board === "early" ? (
-                        <p className="text-xs text-zinc-500">
-                          {finish ? `Submitted ${finish.createdAt.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}` : "No submission yet"} | {member.streak} streak
-                        </p>
-                      ) : (
-                        <p className="text-xs text-zinc-500">
-                          {member.completions} completions | {member.misses} misses | {member.reputationScore} rep
-                        </p>
-                      )}
+                      <p className="text-xs text-zinc-500">
+                        {member.points} pts | {member.completions} completions | {member.reputationScore} rep
+                      </p>
                     </div>
-                    <div className="text-right">
-                      {board === "early" ? (
-                        <>
-                          <p className="text-sm font-semibold text-primary">{finish ? `#${index + 1} today` : "Pending"}</p>
-                          <p className="text-xs text-zinc-500">{member.points} pts | {member.reputationScore} rep</p>
-                        </>
-                      ) : (
-                        <>
-                          <p className="text-sm font-semibold text-primary">{member.points} pts</p>
-                          <p className="text-xs text-zinc-500">{member.streak} streak</p>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
+                  ))}
+                </div>
+              </div>
             </div>
           </div>
 
@@ -310,12 +635,6 @@ export default async function GroupFeedPage({ params, searchParams }: FeedPagePr
                 Activity will appear here as members join, upload proof, and get reviewed.
               </div>
             )}
-          </div>
-
-          <div className="mb-6">
-            <h3 className="text-lg font-semibold text-zinc-200 mb-2">Today&apos;s Check-in</h3>
-            <p className="text-sm text-zinc-500 mb-4">Don&apos;t forget to submit your proof before midnight.</p>
-            <CheckinForm groupId={id} />
           </div>
         </div>
       </div>

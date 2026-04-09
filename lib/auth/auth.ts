@@ -21,6 +21,7 @@ const auth = betterAuth({
         additionalFields: {
             role: {
                 type: "string",
+                default: "member",
             },
             isBlocked: {
                 type: "boolean",

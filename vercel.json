@@ -7,6 +7,10 @@
     {
       "path": "/api/cron/check-missed",
       "schedule": "35 18 * * *" 
+    },
+    {
+      "path": "/api/cron/refresh-leaderboards",
+      "schedule": "0 19 * * 0"
     }
   ]
 }

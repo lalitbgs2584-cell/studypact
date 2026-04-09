@@ -2,6 +2,7 @@ import { TodoList } from "@/components/shared/todo-list";
 import auth from "@/lib/auth/auth";
 import { prisma } from "@/lib/db";
 import { startOfDay } from "@/lib/studypact";
+import { ensureRecurringTasksForUser } from "@/lib/server/studypact";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { CheckCircle2 } from "lucide-react";
@@ -14,6 +15,8 @@ export default async function TasksPage() {
   if (!session?.user) {
     redirect("/login");
   }
+
+  await ensureRecurringTasksForUser(session.user.id);
 
   const [memberships, tasks] = await Promise.all([
     prisma.userGroup.findMany({
@@ -55,12 +58,17 @@ export default async function TasksPage() {
           groups={memberships.map((membership) => ({
             id: membership.groupId,
             name: membership.group.name,
+            role: membership.role,
+            taskPostingMode: membership.group.taskPostingMode,
+            focusType: membership.group.focusType,
           }))}
           tasks={tasks.map((task) => ({
             id: task.id,
             text: task.title,
             completed: task.status === "COMPLETED",
             groupId: task.groupId,
+            category: task.category,
+            targetMinutes: task.targetMinutes,
           }))}
         />
       </div>

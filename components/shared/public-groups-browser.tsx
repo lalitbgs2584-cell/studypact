@@ -6,6 +6,11 @@ import { Globe, Loader2, Search, Users } from "lucide-react";
 import { joinPublicGroupAction } from "@/lib/actions/studypact";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  getGroupFocusLabel,
+  getPenaltyModeLabel,
+  getTaskPostingModeLabel,
+} from "@/lib/studypact";
 
 type PublicGroup = {
   id: string;
@@ -16,6 +21,9 @@ type PublicGroup = {
   maxMembers: number;
   memberCount: number;
   createdByName: string;
+  focusType: string;
+  taskPostingMode: string;
+  penaltyMode: string;
   isMember: boolean;
 };
 
@@ -46,7 +54,6 @@ export function PublicGroupsBrowser({ groups }: { groups: PublicGroup[] }) {
       }
 
       router.push(`/group/${result.groupId}/feed`);
-      router.refresh();
     });
   };
 
@@ -83,6 +90,14 @@ export function PublicGroupsBrowser({ groups }: { groups: PublicGroup[] }) {
                       <Globe className="w-3.5 h-3.5" />
                       Public Group
                     </div>
+                    <div className="mt-2 flex flex-wrap gap-2 text-xs">
+                      <span className="rounded-full border border-zinc-700 bg-zinc-900 px-3 py-1 text-zinc-300">
+                        {getGroupFocusLabel(group.focusType)}
+                      </span>
+                      <span className="rounded-full border border-zinc-700 bg-zinc-900 px-3 py-1 text-zinc-300">
+                        {getPenaltyModeLabel(group.penaltyMode)}
+                      </span>
+                    </div>
                     <h3 className="mt-3 text-xl font-semibold text-white">{group.name}</h3>
                     <p className="mt-2 text-sm text-zinc-400">
                       {group.description || "An open accountability circle ready for new members."}
@@ -99,6 +114,7 @@ export function PublicGroupsBrowser({ groups }: { groups: PublicGroup[] }) {
                     <Users className="w-4 h-4 text-zinc-500" />
                     {group.memberCount}/{group.maxMembers} members
                   </span>
+                  <span>{getTaskPostingModeLabel(group.taskPostingMode)}</span>
                   {group.link ? (
                     <a href={group.link} target="_blank" rel="noreferrer" className="text-primary hover:underline">
                       Reference link

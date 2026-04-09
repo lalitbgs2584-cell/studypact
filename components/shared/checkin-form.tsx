@@ -80,6 +80,7 @@ export function CheckinForm({ groupId }: CheckinFormProps) {
   const [endProof, setEndProof] = useState<UploadedProof>(null);
   const [reflection, setReflection] = useState("");
   const [proofText, setProofText] = useState("");
+  const [proofLink, setProofLink] = useState("");
   const [message, setMessage] = useState<string | null>(null);
 
   const handleSubmit = () => {
@@ -93,6 +94,7 @@ export function CheckinForm({ groupId }: CheckinFormProps) {
           groupId,
           reflection,
           proofText,
+          proofLink,
           startFileId: startProof.fileId,
           endFileId: endProof.fileId,
         });
@@ -140,6 +142,16 @@ export function CheckinForm({ groupId }: CheckinFormProps) {
             onChange={(event) => setProofText(event.target.value)}
             placeholder="Paste a GitHub commit, describe the proof, or add a short update..."
             className="resize-none h-20 bg-zinc-900/50 border-zinc-800 focus-visible:ring-primary/50 text-zinc-100 rounded-xl"
+          />
+        </div>
+
+        <div className="space-y-2">
+          <label className="text-sm font-medium text-zinc-300 ml-1">Proof Link</label>
+          <input
+            value={proofLink}
+            onChange={(event) => setProofLink(event.target.value)}
+            placeholder="GitHub, LeetCode, docs, or demo link..."
+            className="w-full h-12 rounded-xl border border-zinc-800 bg-zinc-900/50 px-3 text-sm text-zinc-100 outline-none"
           />
         </div>
 

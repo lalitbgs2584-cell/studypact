@@ -3,11 +3,12 @@
 import { Suspense, useState, useTransition } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { KeyRound, Loader2, Sparkles } from "lucide-react";
+import { KeyRound, Loader2 } from "lucide-react";
 import { requestPasswordResetAction } from "@/lib/actions/studypact";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { StudyPactLogo } from "@/components/shared/studypact-logo";
 
 function ForgotPasswordFallback() {
   return (
@@ -15,9 +16,8 @@ function ForgotPasswordFallback() {
       <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-primary/10 via-black to-black -z-10"></div>
 
       <div className="w-full max-w-md bg-zinc-900/40 border border-zinc-800/80 backdrop-blur-xl rounded-3xl p-8 lg:p-10 text-center animate-in zoom-in-95 duration-500 shadow-2xl flex flex-col items-center">
-        <Link href="/" className="flex items-center gap-2 mb-8 group">
-          <Sparkles className="w-6 h-6 text-primary group-hover:scale-110 transition-transform" />
-          <span className="font-bold text-xl tracking-tight text-white">StudyPact</span>
+        <Link href="/" className="mb-8">
+          <StudyPactLogo size="sm" labelClassName="text-xl" />
         </Link>
 
         <div className="w-16 h-16 bg-primary/20 rounded-full flex items-center justify-center mb-6 shadow-[0_0_30px_rgba(var(--primary),0.4)]">
@@ -64,9 +64,8 @@ function ForgotPasswordPageContent() {
       <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-primary/10 via-black to-black -z-10"></div>
 
       <div className="w-full max-w-md bg-zinc-900/40 border border-zinc-800/80 backdrop-blur-xl rounded-3xl p-8 lg:p-10 text-center animate-in zoom-in-95 duration-500 shadow-2xl flex flex-col items-center">
-        <Link href="/" className="flex items-center gap-2 mb-8 group">
-          <Sparkles className="w-6 h-6 text-primary group-hover:scale-110 transition-transform" />
-          <span className="font-bold text-xl tracking-tight text-white">StudyPact</span>
+        <Link href="/" className="mb-8">
+          <StudyPactLogo size="sm" labelClassName="text-xl" />
         </Link>
 
         <div className="w-16 h-16 bg-primary/20 rounded-full flex items-center justify-center mb-6 shadow-[0_0_30px_rgba(var(--primary),0.4)]">

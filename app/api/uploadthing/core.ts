@@ -8,6 +8,35 @@ import { deleteUploadThingFile } from "@/lib/server/studypact";
 
 const f = createUploadthing();
 
+async function requireUploadMembership(groupId: string) {
+  const session = await auth.api.getSession({
+    headers: await headers(),
+  });
+
+  if (!session?.user) {
+    throw new UploadThingError("Unauthorized");
+  }
+
+  const membership = await prisma.userGroup.findUnique({
+    where: {
+      userId_groupId: {
+        userId: session.user.id,
+        groupId,
+      },
+    },
+  });
+
+  if (!membership) {
+    throw new UploadThingError("You are not a member of this group");
+  }
+
+  return {
+    userId: session.user.id,
+    userEmail: session.user.email,
+    groupId,
+  };
+}
+
 export const ourFileRouter = {
   attachmentUploader: f({
     image: { maxFileSize: "4MB", maxFileCount: 1 },
@@ -18,35 +47,10 @@ export const ourFileRouter = {
       slot: z.enum(["start", "end"]),
     }))
 
-    .middleware(async ({ input }) => {
-      const session = await auth.api.getSession({
-        headers: await headers(),
-      });
-
-      if (!session || !session.user) {
-        throw new UploadThingError("Unauthorized");
-      }
-
-      const membership = await prisma.userGroup.findUnique({
-        where: {
-          userId_groupId: {
-            userId: session.user.id,
-            groupId: input.groupId,
-          },
-        },
-      });
-
-      if (!membership) {
-        throw new UploadThingError("You are not a member of this group");
-      }
-
-      return {
-        userId: session.user.id,
-        userEmail: session.user.email,
-        groupId: input.groupId,
-        slot: input.slot,
-      };
-    })
+    .middleware(async ({ input }) => ({
+      ...(await requireUploadMembership(input.groupId)),
+      slot: input.slot,
+    }))
 
     .onUploadComplete(async ({ metadata, file }) => {
       try {
@@ -122,6 +126,19 @@ export const ourFileRouter = {
         throw new UploadThingError("Database saving failed");
       }
     }),
+  groupMessageImageUploader: f({
+    image: { maxFileSize: "4MB", maxFileCount: 1 },
+  })
+    .input(z.object({
+      groupId: z.string().min(1),
+    }))
+    .middleware(async ({ input }) => requireUploadMembership(input.groupId))
+    .onUploadComplete(async ({ metadata, file }) => ({
+      uploadedBy: metadata.userId,
+      url: file.url,
+      fileName: file.name,
+      storageKey: file.key,
+    })),
 } satisfies FileRouter;
 
 export type OurFileRouter = typeof ourFileRouter;

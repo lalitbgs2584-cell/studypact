@@ -85,6 +85,7 @@ export function CreateGroupForm() {
             <div className="space-y-2">
               <Label htmlFor="maxMembers" className="text-zinc-300">Member Limit</Label>
               <Input name="maxMembers" id="maxMembers" type="number" min={2} defaultValue={8} className="bg-zinc-900 border-zinc-800 focus-visible:ring-primary/50 text-white" />
+              <p className="text-xs text-zinc-500">5-10 members tends to be the strongest accountability range.</p>
             </div>
             <div className="space-y-2">
               <Label htmlFor="inviteExpiresInDays" className="text-zinc-300">Invite Expires In (Days)</Label>
@@ -101,6 +102,48 @@ export function CreateGroupForm() {
             >
               <option value="PRIVATE">Private - invite only</option>
               <option value="PUBLIC">Public - searchable and joinable</option>
+            </select>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="focusType" className="text-zinc-300">Group Type</Label>
+              <select
+                name="focusType"
+                id="focusType"
+                defaultValue="GENERAL"
+                className="w-full h-11 rounded-xl border border-zinc-800 bg-zinc-900 px-3 text-sm text-zinc-100 outline-none"
+              >
+                <option value="GENERAL">General accountability</option>
+                <option value="DSA">DSA focused</option>
+                <option value="DEVELOPMENT">Development focused</option>
+                <option value="EXAM_PREP">Exam prep</option>
+                <option value="MACHINE_LEARNING">Machine learning</option>
+                <option value="CUSTOM">Custom goals</option>
+              </select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="penaltyMode" className="text-zinc-300">Penalty Mode</Label>
+              <select
+                name="penaltyMode"
+                id="penaltyMode"
+                defaultValue="BURN"
+                className="w-full h-11 rounded-xl border border-zinc-800 bg-zinc-900 px-3 text-sm text-zinc-100 outline-none"
+              >
+                <option value="BURN">Burn - penalties are pure loss</option>
+                <option value="POOL">Pool - penalties build a reward pool</option>
+              </select>
+            </div>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="taskPostingMode" className="text-zinc-300">Checklist Posting</Label>
+            <select
+              name="taskPostingMode"
+              id="taskPostingMode"
+              defaultValue="ALL_MEMBERS"
+              className="w-full h-11 rounded-xl border border-zinc-800 bg-zinc-900 px-3 text-sm text-zinc-100 outline-none"
+            >
+              <option value="ALL_MEMBERS">All members can post daily checklist items</option>
+              <option value="ADMINS_ONLY">Only admins can post group checklist items</option>
             </select>
           </div>
           <div className="space-y-2">

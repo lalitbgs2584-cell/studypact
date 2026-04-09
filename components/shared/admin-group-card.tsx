@@ -3,6 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Settings, Users, ArrowUpRight, Files } from "lucide-react";
 import Link from "next/link";
+import { getGroupFocusLabel, getPenaltyModeLabel } from "@/lib/studypact";
 
 type AdminGroupCardProps = {
   id?: string;
@@ -13,6 +14,8 @@ type AdminGroupCardProps = {
   fileCount?: number;
   role?: string | null;
   href?: string;
+  focusType?: string | null;
+  penaltyMode?: string | null;
 };
 
 export function AdminGroupCard({
@@ -24,6 +27,8 @@ export function AdminGroupCard({
   fileCount = 0,
   role = "admin",
   href,
+  focusType = "GENERAL",
+  penaltyMode = "BURN",
 }: AdminGroupCardProps) {
   const destination = href ?? `/group/${id}/feed`;
   const roleLabel = role ? role[0].toUpperCase() + role.slice(1) : "Member";
@@ -34,6 +39,14 @@ export function AdminGroupCard({
       <CardHeader className="flex flex-row items-start justify-between pb-4">
         <div>
           <Badge className="mb-2 bg-indigo-500/10 text-indigo-400 font-semibold border-indigo-500/20">{badge}</Badge>
+          <div className="mb-3 flex flex-wrap gap-2 text-xs">
+            <span className="rounded-full border border-zinc-700 bg-zinc-900 px-3 py-1 text-zinc-300">
+              {getGroupFocusLabel(focusType || "GENERAL")}
+            </span>
+            <span className="rounded-full border border-zinc-700 bg-zinc-900 px-3 py-1 text-zinc-300">
+              {getPenaltyModeLabel(penaltyMode || "BURN")}
+            </span>
+          </div>
           <CardTitle className="text-2xl text-white font-bold tracking-tight">{title}</CardTitle>
           <p className="mt-2 text-sm text-zinc-400 max-w-xl">{description || "No description added for this group yet."}</p>
         </div>

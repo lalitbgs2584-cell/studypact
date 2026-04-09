@@ -77,6 +77,154 @@ export async function requireGroupMembership(userId: string, groupId: string) {
   return membership;
 }
 
+export async function ensureRecurringTasksForUser(userId: string, targetDay = startOfDay()) {
+  const memberships = await prisma.userGroup.findMany({
+    where: { userId },
+    select: { groupId: true },
+  });
+
+  if (!memberships.length) {
+    return 0;
+  }
+
+  const groupIds = memberships.map((membership) => membership.groupId);
+  const templates = await prisma.taskTemplate.findMany({
+    where: {
+      isActive: true,
+      groupId: {
+        in: groupIds,
+      },
+      OR: [
+        {
+          scope: "GROUP",
+        },
+        {
+          scope: "PERSONAL",
+          userId,
+        },
+      ],
+    },
+  });
+
+  if (!templates.length) {
+    return 0;
+  }
+
+  const templateIds = templates.map((template) => template.id);
+  const existingTasks = await prisma.task.findMany({
+    where: {
+      userId,
+      day: targetDay,
+      templateId: {
+        in: templateIds,
+      },
+    },
+    select: {
+      templateId: true,
+    },
+  });
+
+  const existingTemplateIds = new Set(existingTasks.map((task) => task.templateId).filter(Boolean));
+  const missingTasks = templates
+    .filter((template) => !existingTemplateIds.has(template.id))
+    .map((template) => ({
+      title: template.title,
+      details: template.details,
+      category: template.category,
+      targetMinutes: template.targetMinutes,
+      day: targetDay,
+      groupId: template.groupId,
+      userId,
+      templateId: template.id,
+    }));
+
+  if (!missingTasks.length) {
+    return 0;
+  }
+
+  await prisma.task.createMany({
+    data: missingTasks,
+  });
+
+  return missingTasks.length;
+}
+
+export async function materializeGroupRecurringTasks(groupId: string, targetDay = startOfDay()) {
+  const [memberships, templates] = await Promise.all([
+    prisma.userGroup.findMany({
+      where: { groupId },
+      select: { userId: true },
+    }),
+    prisma.taskTemplate.findMany({
+      where: {
+        groupId,
+        isActive: true,
+      },
+    }),
+  ]);
+
+  if (!memberships.length || !templates.length) {
+    return 0;
+  }
+
+  const userIds = memberships.map((membership) => membership.userId);
+  const templateIds = templates.map((template) => template.id);
+  const existingTasks = await prisma.task.findMany({
+    where: {
+      groupId,
+      day: targetDay,
+      templateId: {
+        in: templateIds,
+      },
+      userId: {
+        in: userIds,
+      },
+    },
+    select: {
+      userId: true,
+      templateId: true,
+    },
+  });
+
+  const existingPairs = new Set(
+    existingTasks
+      .filter((task) => task.templateId)
+      .map((task) => `${task.templateId}:${task.userId}`),
+  );
+
+  const tasksToCreate = templates.flatMap((template) => {
+    const scopedUserIds =
+      template.scope === "PERSONAL"
+        ? template.userId
+          ? [template.userId]
+          : []
+        : userIds;
+
+    return scopedUserIds
+      .filter((userIdValue) => !existingPairs.has(`${template.id}:${userIdValue}`))
+      .map((userIdValue) => ({
+        title: template.title,
+        details: template.details,
+        category: template.category,
+        targetMinutes: template.targetMinutes,
+        day: targetDay,
+        groupId,
+        userId: userIdValue,
+        templateId: template.id,
+      }));
+  });
+
+  if (!tasksToCreate.length) {
+    return 0;
+  }
+
+  await prisma.task.createMany({
+    data: tasksToCreate,
+  });
+
+  return tasksToCreate.length;
+}
+
 export type InviteLinkState = {
   status: "missing" | "expired" | "full" | "joinable" | "already-member";
   group:
@@ -345,6 +493,7 @@ export async function sendPreDeadlineNudges(options?: {
 
   for (const group of groups) {
     summary.checkedGroups += 1;
+    await materializeGroupRecurringTasks(group.id, targetDay);
 
     const [memberships, tasks, checkIns] = await Promise.all([
       prisma.userGroup.findMany({
@@ -456,6 +605,7 @@ export async function syncMissedCheckInPenalties(options?: {
 
   for (const group of groups) {
     summary.checkedGroups += 1;
+    await materializeGroupRecurringTasks(group.id, targetDay);
 
     const [memberships, tasks, checkIns] = await Promise.all([
       prisma.userGroup.findMany({

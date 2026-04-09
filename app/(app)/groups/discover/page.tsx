@@ -68,6 +68,9 @@ export default async function DiscoverGroupsPage() {
           maxMembers: group.maxMembers,
           memberCount: group._count.users,
           createdByName: group.createdBy.name,
+          focusType: group.focusType,
+          taskPostingMode: group.taskPostingMode,
+          penaltyMode: group.penaltyMode,
           isMember: membershipIds.has(group.id),
         }))}
       />
