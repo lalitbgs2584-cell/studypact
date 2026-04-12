@@ -79,13 +79,17 @@ export async function POST(request: Request) {
       proofLink?: string;
       startFileId?: string;
       endFileId?: string;
+      taskProofs?: { taskId: string; startFileId: string; endFileId: string }[];
     };
 
-    if (!body.groupId || !body.startFileId || !body.endFileId) {
+    if (
+      !body.groupId ||
+      (!body.taskProofs?.length && (!body.startFileId || !body.endFileId))
+    ) {
       return NextResponse.json(
         {
           success: false,
-          error: "groupId, startFileId, and endFileId are required",
+          error: "groupId and either taskProofs or a start/end proof pair are required",
         },
         { status: 400 },
       );
@@ -98,6 +102,7 @@ export async function POST(request: Request) {
       proofLink: body.proofLink,
       startFileId: body.startFileId,
       endFileId: body.endFileId,
+      taskProofs: body.taskProofs,
     });
 
     return NextResponse.json({

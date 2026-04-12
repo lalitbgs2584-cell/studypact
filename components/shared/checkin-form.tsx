@@ -1,17 +1,19 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
+import { useMemo, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { Camera, ChevronDown, ChevronUp, CheckCircle2, Loader2, Upload } from "lucide-react";
+import { toast } from "sonner";
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { UploadButton } from "@/lib/uploadthing/uploadthing";
 import { submitCheckInAction } from "@/lib/actions/studypact";
-import { Camera, Loader2, Upload } from "lucide-react";
-import { toast } from "sonner";
-import { useRouter } from "next/navigation";
+import { UploadButton } from "@/lib/uploadthing/uploadthing";
+import { cn } from "@/lib/utils";
 
 type CheckinFormProps = {
   groupId: string;
+  tasks: { id: string; title: string; status: string }[];
 };
 
 type UploadSlot = "start" | "end";
@@ -21,10 +23,16 @@ type UploadedProof = {
   url: string;
 } | null;
 
+type TaskProofState = {
+  start: UploadedProof;
+  end: UploadedProof;
+};
+
 type UploadPanelProps = {
   title: string;
   helper: string;
   groupId: string;
+  taskId: string;
   slot: UploadSlot;
   uploadedProof: UploadedProof;
   onUploaded: (proof: UploadedProof) => void;
@@ -34,6 +42,7 @@ function UploadPanel({
   title,
   helper,
   groupId,
+  taskId,
   slot,
   uploadedProof,
   onUploaded,
@@ -42,25 +51,26 @@ function UploadPanel({
 
   return (
     <div className="space-y-3">
-      <label className="text-sm font-medium text-zinc-300 ml-1">{title}</label>
+      <label className="ml-1 text-sm font-medium text-foreground">{title}</label>
 
       {isUploaded && uploadedProof?.url ? (
-        <div className="relative rounded-2xl overflow-hidden border border-primary/30 bg-zinc-900">
+        <div className="relative overflow-hidden rounded-2xl border border-border bg-card">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={uploadedProof.url}
             alt={`${title} preview`}
-            className="w-full max-h-56 object-cover"
+            className="max-h-56 w-full object-cover"
           />
-          <div className="absolute bottom-0 left-0 right-0 flex items-center justify-between gap-3 bg-black/70 backdrop-blur-sm px-4 py-2">
-            <span className="text-xs text-emerald-400 font-medium flex items-center gap-1.5">
-              <Camera className="w-3.5 h-3.5" /> {title} uploaded
+          <div className="absolute bottom-0 left-0 right-0 flex items-center justify-between gap-3 bg-background/80 px-4 py-2 backdrop-blur-sm">
+            <span className="flex items-center gap-1.5 text-xs font-medium text-emerald-300">
+              <Camera className="h-3.5 w-3.5" /> {title} uploaded
             </span>
             <UploadButton
               endpoint="attachmentUploader"
-              input={{ groupId, slot }}
+              input={{ groupId, slot, taskId }}
               appearance={{
-                button: "ut-ready:bg-zinc-700 ut-ready:hover:bg-zinc-600 ut-ready:text-xs ut-ready:h-7 ut-ready:px-3 ut-uploading:bg-zinc-700",
+                button:
+                  "ut-ready:bg-secondary ut-ready:hover:bg-secondary/90 ut-ready:text-xs ut-ready:h-7 ut-ready:px-3 ut-uploading:bg-secondary",
                 allowedContent: "hidden",
               }}
               onClientUploadComplete={(res) => {
@@ -74,20 +84,20 @@ function UploadPanel({
           </div>
         </div>
       ) : (
-        <div className="border-2 border-dashed border-zinc-700/50 rounded-2xl min-h-48 flex flex-col items-center justify-center bg-zinc-900/50 hover:bg-zinc-800/50 hover:border-primary/50 transition-all group px-6 py-8 text-center">
-          <div className="bg-zinc-800 p-4 rounded-full group-hover:scale-110 transition-transform">
-            <Camera className="w-6 h-6 text-zinc-400 group-hover:text-primary transition-colors" />
+        <div className="flex min-h-44 flex-col items-center justify-center rounded-2xl border-2 border-dashed border-border bg-card/70 px-6 py-8 text-center transition-all hover:border-primary/40 hover:bg-secondary/40">
+          <div className="rounded-full bg-secondary p-4">
+            <Camera className="h-6 w-6 text-muted-foreground" />
           </div>
-          <p className="mt-4 text-sm font-medium text-zinc-300">Upload {title.toLowerCase()}</p>
-          <p className="text-xs text-zinc-500 mt-1">{helper}</p>
+          <p className="mt-4 text-sm font-medium text-foreground">Upload {title.toLowerCase()}</p>
+          <p className="mt-1 text-xs text-muted-foreground">{helper}</p>
           <div className="mt-5">
             <UploadButton
               endpoint="attachmentUploader"
-              input={{ groupId, slot }}
+              input={{ groupId, slot, taskId }}
               appearance={{
                 button:
-                  "ut-ready:bg-primary ut-ready:hover:bg-primary/90 ut-uploading:bg-primary/80 ut-label:text-primary-foreground ut-allowed-content:text-zinc-500",
-                allowedContent: "text-zinc-500 text-xs",
+                  "ut-ready:bg-primary ut-ready:hover:bg-primary/90 ut-uploading:bg-primary/80 ut-label:text-primary-foreground ut-allowed-content:text-muted-foreground",
+                allowedContent: "text-muted-foreground text-xs",
               }}
               onClientUploadComplete={(res) => {
                 const item = res?.[0];
@@ -104,20 +114,52 @@ function UploadPanel({
   );
 }
 
-export function CheckinForm({ groupId }: CheckinFormProps) {
+export function CheckinForm({ groupId, tasks }: CheckinFormProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
-  const [startProof, setStartProof] = useState<UploadedProof>(null);
-  const [endProof, setEndProof] = useState<UploadedProof>(null);
+  const [taskProofs, setTaskProofs] = useState<Record<string, TaskProofState>>({});
+  const [expandedTaskId, setExpandedTaskId] = useState<string | null>(tasks[0]?.id ?? null);
   const [reflection, setReflection] = useState("");
   const [proofText, setProofText] = useState("");
   const [proofLink, setProofLink] = useState("");
   const [message, setMessage] = useState<string | null>(null);
 
+  const setTaskProof = (taskId: string, slot: UploadSlot, proof: UploadedProof) => {
+    setTaskProofs((current) => {
+      const existing = current[taskId] ?? { start: null, end: null };
+      return {
+        ...current,
+        [taskId]: {
+          start: slot === "start" ? proof : existing.start,
+          end: slot === "end" ? proof : existing.end,
+        },
+      };
+    });
+  };
+
+  const completedTaskProofs = useMemo(
+    () =>
+      tasks
+        .map((task) => ({
+          taskId: task.id,
+          start: taskProofs[task.id]?.start ?? null,
+          end: taskProofs[task.id]?.end ?? null,
+        }))
+        .filter((task) => task.start?.fileId && task.end?.fileId),
+    [taskProofs, tasks],
+  );
+
   const handleSubmit = () => {
-    if (!startProof?.fileId || !endProof?.fileId) {
+    if (!completedTaskProofs.length) {
       return;
     }
+
+    const primaryProof = completedTaskProofs[0];
+    if (!primaryProof?.start?.fileId || !primaryProof?.end?.fileId) {
+      return;
+    }
+    const startProof = primaryProof.start;
+    const endProof = primaryProof.end;
 
     startTransition(async () => {
       try {
@@ -128,84 +170,152 @@ export function CheckinForm({ groupId }: CheckinFormProps) {
           proofLink,
           startFileId: startProof.fileId,
           endFileId: endProof.fileId,
+          taskProofs: completedTaskProofs.map((task) => ({
+            taskId: task.taskId,
+            startFileId: task.start!.fileId,
+            endFileId: task.end!.fileId,
+          })),
         });
 
         if (result.success) {
-          setMessage("Check-in submitted for peer review.");
+          toast.success("Check-in submitted for peer review.");
+          setMessage(`Attached proof pairs for ${completedTaskProofs.length} task${completedTaskProofs.length === 1 ? "" : "s"}.`);
           router.refresh();
         }
       } catch (error) {
-        setMessage(error instanceof Error ? error.message : "Failed to submit check-in");
+        const nextMessage = error instanceof Error ? error.message : "Failed to submit check-in";
+        setMessage(nextMessage);
+        toast.error(nextMessage);
       }
     });
   };
 
   return (
-    <Card className="bg-gradient-to-b from-zinc-900 to-black border-zinc-800 shadow-2xl relative overflow-hidden">
-      <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-primary/50 via-indigo-500 to-purple-600"></div>
+    <Card className="relative overflow-hidden border-border bg-card/90 shadow-2xl backdrop-blur-xl">
+      <div className="absolute top-0 left-0 h-1 w-full bg-gradient-to-r from-primary via-accent to-primary" />
       <CardHeader>
-        <CardTitle className="text-xl">Daily Check-in</CardTitle>
-        <CardDescription className="text-zinc-400">Upload proof of your work and a short reflection.</CardDescription>
+        <CardTitle className="text-xl text-foreground">Daily Check-in</CardTitle>
+        <CardDescription className="text-muted-foreground">
+          Expand each task, attach a start and end proof, then submit one shared reflection for the day.
+        </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
-        <UploadPanel
-          title="Start Pic"
-          helper="PNG, JPG, HEIC up to 4MB"
-          groupId={groupId}
-          slot="start"
-          uploadedProof={startProof}
-          onUploaded={setStartProof}
-        />
+        <div className="space-y-4">
+          {tasks.map((task) => {
+            const proofs = taskProofs[task.id] ?? { start: null, end: null };
+            const hasBoth = Boolean(proofs.start?.fileId && proofs.end?.fileId);
+            const isExpanded = expandedTaskId === task.id;
 
-        <UploadPanel
-          title="End Pic"
-          helper="PNG, JPG, HEIC up to 4MB"
-          groupId={groupId}
-          slot="end"
-          uploadedProof={endProof}
-          onUploaded={setEndProof}
-        />
+            return (
+              <div
+                key={task.id}
+                className={cn(
+                  "overflow-hidden rounded-2xl border transition-colors",
+                  hasBoth ? "border-emerald-500/30 bg-emerald-500/8" : "border-border bg-card/60",
+                )}
+              >
+                <button
+                  type="button"
+                  onClick={() => setExpandedTaskId((current) => (current === task.id ? null : task.id))}
+                  className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-foreground">{task.title}</p>
+                    <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                      <span className="rounded-full border border-border bg-secondary px-2.5 py-1 text-muted-foreground">
+                        {task.status === "COMPLETED" ? "Task complete" : "Task pending"}
+                      </span>
+                      <span
+                        className={cn(
+                          "rounded-full border px-2.5 py-1",
+                          hasBoth
+                            ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+                            : "border-border bg-background text-muted-foreground",
+                        )}
+                      >
+                        {hasBoth ? "Both photos uploaded" : "Waiting for proof"}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    {hasBoth ? <CheckCircle2 className="h-4 w-4 text-emerald-300" /> : null}
+                    {isExpanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+                  </div>
+                </button>
+
+                {isExpanded ? (
+                  <div className="grid gap-4 border-t border-border px-5 py-5 md:grid-cols-2">
+                    <UploadPanel
+                      title="Upload Start Photo"
+                      helper="Capture how this task looked when you began."
+                      groupId={groupId}
+                      taskId={task.id}
+                      slot="start"
+                      uploadedProof={proofs.start}
+                      onUploaded={(proof) => setTaskProof(task.id, "start", proof)}
+                    />
+                    <UploadPanel
+                      title="Upload End Photo"
+                      helper="Upload the finished outcome for this task."
+                      groupId={groupId}
+                      taskId={task.id}
+                      slot="end"
+                      uploadedProof={proofs.end}
+                      onUploaded={(proof) => setTaskProof(task.id, "end", proof)}
+                    />
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="rounded-2xl border border-border bg-background/70 px-4 py-4 text-sm text-muted-foreground">
+          {completedTaskProofs.length > 0
+            ? `${completedTaskProofs.length} task${completedTaskProofs.length === 1 ? "" : "s"} ready to submit with complete proof pairs.`
+            : "Upload both photos for at least one task to enable submission."}
+        </div>
 
         <div className="space-y-2">
-          <label className="text-sm font-medium text-zinc-300 ml-1">Proof Note / Commit / Update</label>
+          <label className="ml-1 text-sm font-medium text-foreground">Proof Note / Commit / Update</label>
           <Textarea
             value={proofText}
             onChange={(event) => setProofText(event.target.value)}
-            placeholder="Paste a GitHub commit, describe the proof, or add a short update..."
-            className="resize-none h-20 bg-zinc-900/50 border-zinc-800 focus-visible:ring-primary/50 text-zinc-100 rounded-xl"
+            placeholder="Paste a commit, explain the proof, or add a concise update..."
+            className="h-20 resize-none rounded-xl border-border bg-card text-foreground focus-visible:ring-primary/50"
           />
         </div>
 
         <div className="space-y-2">
-          <label className="text-sm font-medium text-zinc-300 ml-1">Proof Link</label>
+          <label className="ml-1 text-sm font-medium text-foreground">Proof Link</label>
           <input
             value={proofLink}
             onChange={(event) => setProofLink(event.target.value)}
             placeholder="GitHub, LeetCode, docs, or demo link..."
-            className="w-full h-12 rounded-xl border border-zinc-800 bg-zinc-900/50 px-3 text-sm text-zinc-100 outline-none"
+            className="h-12 w-full rounded-xl border border-border bg-card px-3 text-sm text-foreground outline-none"
           />
         </div>
 
         <div className="space-y-2">
-          <label className="text-sm font-medium text-zinc-300 ml-1">Daily Reflection</label>
+          <label className="ml-1 text-sm font-medium text-foreground">Daily Reflection</label>
           <Textarea
             value={reflection}
             onChange={(event) => setReflection(event.target.value)}
-            placeholder="What did you study today? Explain briefly..."
-            className="resize-none h-24 bg-zinc-900/50 border-zinc-800 focus-visible:ring-primary/50 text-zinc-100 rounded-xl"
+            placeholder="What did you learn, ship, or get unstuck on today?"
+            className="h-24 resize-none rounded-xl border-border bg-card text-foreground focus-visible:ring-primary/50"
           />
         </div>
 
-        {message ? <p className="text-sm text-zinc-400">{message}</p> : null}
+        {message ? <p className="text-sm text-muted-foreground">{message}</p> : null}
       </CardContent>
       <CardFooter>
         <Button
           type="button"
           onClick={handleSubmit}
-          disabled={!startProof?.fileId || !endProof?.fileId || isPending}
-          className="w-full sm:w-auto ml-auto rounded-xl px-8 shadow-[0_0_20px_rgba(var(--primary),0.2)]"
+          disabled={!completedTaskProofs.length || isPending}
+          className="ml-auto rounded-xl px-8 shadow-[0_0_20px_rgba(var(--primary),0.2)]"
         >
-          {isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Upload className="w-4 h-4 mr-2" />}
+          {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
           Submit Check-in
         </Button>
       </CardFooter>

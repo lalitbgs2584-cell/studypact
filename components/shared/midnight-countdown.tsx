@@ -18,10 +18,9 @@ function formatTime(seconds: number) {
 }
 
 export function MidnightCountdown({ submitted }: { submitted?: boolean }) {
-  const [seconds, setSeconds] = useState(0);
+  const [seconds, setSeconds] = useState(() => getSecondsUntilMidnight());
 
   useEffect(() => {
-    setSeconds(getSecondsUntilMidnight());
     const interval = setInterval(() => setSeconds(getSecondsUntilMidnight()), 1000);
     return () => clearInterval(interval);
   }, []);

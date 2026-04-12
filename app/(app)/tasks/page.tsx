@@ -1,4 +1,5 @@
 import { TodoList } from "@/components/shared/todo-list";
+import { CreateTaskDialog } from "@/components/shared/create-task-dialog";
 import auth from "@/lib/auth/auth";
 import { prisma } from "@/lib/db";
 import { startOfDay } from "@/lib/studypact";
@@ -76,8 +77,18 @@ export default async function TasksPage() {
             targetMinutes: task.targetMinutes,
             scope: task.scope,
           }))}
+          showCreator={false}
         />
       </div>
+
+      <CreateTaskDialog
+        groups={memberships.map((membership) => ({
+          id: membership.groupId,
+          name: membership.group.name,
+          role: membership.role,
+          taskPostingMode: membership.group.taskPostingMode,
+        }))}
+      />
     </div>
   );
 }

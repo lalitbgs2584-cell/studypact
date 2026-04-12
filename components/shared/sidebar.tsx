@@ -3,7 +3,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { authClient } from "@/lib/auth/client";
-import { LayoutDashboard, Shield, User, LogOut, ListTodo, Plus, Trophy, LayoutList, CheckSquare, Camera } from "lucide-react";
+import { Images, LayoutDashboard, Shield, LogOut, ListTodo, Plus, Trophy } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { StudyPactLogo } from "@/components/shared/studypact-logo";
 
@@ -11,15 +11,12 @@ export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const { data: session } = authClient.useSession();
-  const user = session?.user as
-    | { name?: string | null; email?: string | null; role?: string | null }
-    | undefined;
+  const user = session?.user as { role?: string | null } | undefined;
   const isAdmin = user?.role === "admin";
-  const groupMatch = pathname.match(/\/group\/([^/]+)/);
-  const activeGroupId = groupMatch?.[1] ?? null;
   const routes = [
     { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
     { href: "/leaderboards", label: "Leaderboards", icon: Trophy },
+    { href: "/uploads", label: "Uploads", icon: Images },
     { href: "/groups/create", label: "Create Group", icon: Plus },
     { href: "/tasks", label: "My Tasks", icon: ListTodo },
     ...(isAdmin ? [{ href: "/admin", label: "Admin Dashboard", icon: Shield }] : []),
@@ -32,15 +29,15 @@ export function Sidebar() {
   };
 
   return (
-    <aside className="w-64 lg:w-72 border-r border-zinc-800/50 bg-black/40 backdrop-blur-xl flex flex-col hidden md:flex min-h-screen">
+    <aside className="hidden min-h-screen w-64 flex-col border-r border-border/60 bg-background/60 backdrop-blur-xl md:flex lg:w-72">
       <div className="p-6">
         <Link href="/dashboard" className="group">
           <StudyPactLogo size="sm" labelClassName="text-xl" />
         </Link>
       </div>
 
-      <nav className="flex-1 px-4 space-y-2 mt-4">
-        <div className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-4 px-2">Menu</div>
+      <nav className="mt-4 flex-1 space-y-2 px-4">
+        <div className="mb-4 px-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Menu</div>
         {routes.map((route) => {
           const isActive = pathname.startsWith(route.href);
           const Icon = route.icon;
@@ -49,8 +46,10 @@ export function Sidebar() {
               <Button
                 variant={isActive ? "secondary" : "ghost"}
                 className={cn(
-                  "w-full justify-start gap-3 rounded-xl h-11 text-zinc-400 font-medium transition-all duration-300",
-                  isActive ? "bg-zinc-800/50 text-white shadow-inner border border-zinc-700/50" : "hover:text-white hover:bg-zinc-800/30"
+                  "h-11 w-full justify-start gap-3 rounded-xl font-medium text-muted-foreground transition-all duration-300",
+                  isActive
+                    ? "border border-border bg-secondary text-foreground shadow-inner"
+                    : "hover:bg-secondary hover:text-foreground"
                 )}
               >
                 <Icon className={cn("w-5 h-5", isActive ? "text-primary" : "")} />
@@ -61,54 +60,16 @@ export function Sidebar() {
         })}
       </nav>
 
-      {activeGroupId && (
-        <>
-          <div className="mx-4 border-t border-zinc-800/50" />
-          <nav className="px-4 py-3 space-y-1">
-            <div className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2 px-2">Current Group</div>
-            {[
-              { href: `/group/${activeGroupId}/feed`, label: "Feed", icon: LayoutList },
-              { href: `/tasks`, label: "My Tasks", icon: CheckSquare },
-              { href: `/group/${activeGroupId}/checkin`, label: "Check-in", icon: Camera },
-            ].map((route) => {
-              const isActive = pathname.startsWith(route.href) && route.href !== "/tasks"
-                ? true
-                : route.href === "/tasks" && pathname.startsWith("/tasks");
-              const Icon = route.icon;
-              return (
-                <Link key={route.href} href={route.href}>
-                  <Button
-                    variant={isActive ? "secondary" : "ghost"}
-                    className={cn(
-                      "w-full justify-start gap-3 rounded-xl h-11 text-zinc-400 font-medium transition-all duration-300",
-                      isActive ? "bg-zinc-800/50 text-white shadow-inner border border-zinc-700/50" : "hover:text-white hover:bg-zinc-800/30"
-                    )}
-                  >
-                    <Icon className={cn("w-5 h-5", isActive ? "text-primary" : "")} />
-                    {route.label}
-                  </Button>
-                </Link>
-              );
-            })}
-          </nav>
-        </>
-      )}
-
-      <div className="p-4 mt-auto border-t border-zinc-800/50">
-        <button
+      <div className="mt-auto p-4">
+        <Button
           type="button"
           onClick={handleSignOut}
-          className="w-full flex items-center gap-3 px-2 py-3 rounded-xl hover:bg-zinc-800/50 transition-colors cursor-pointer border border-transparent hover:border-zinc-700/50 group text-left"
+          variant="ghost"
+          className="h-11 w-full justify-start gap-3 rounded-xl border border-border/60 text-muted-foreground transition-colors hover:border-red-500/30 hover:bg-red-500/8 hover:text-red-300"
         >
-          <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-zinc-700 to-zinc-900 border border-zinc-600 flex items-center justify-center shadow-lg group-hover:border-zinc-500 transition-colors">
-            <User className="w-5 h-5 text-zinc-300" />
-          </div>
-          <div className="flex flex-col flex-1">
-            <span className="text-sm font-medium text-white group-hover:text-primary transition-colors">Logout / Switch User</span>
-            <span className="text-xs text-zinc-500">{user?.name || user?.email || "student@example.com"}</span>
-          </div>
-          <LogOut className="w-4 h-4 text-zinc-500 group-hover:text-red-400 transition-colors" />
-        </button>
+          <LogOut className="h-4 w-4" />
+          Logout
+        </Button>
       </div>
     </aside>
   );

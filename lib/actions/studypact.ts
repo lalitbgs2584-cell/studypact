@@ -9,6 +9,7 @@ import {
   deleteUploadThingFile,
   ensureRecurringTasksForUser,
   getInviteLinkState,
+  leaderResolveCheckIn,
   platformResolveCheckIn,
   refreshMembershipReputation,
   requireGroupMembership,
@@ -64,6 +65,7 @@ async function refreshAppSurfaces(groupId?: string) {
   revalidatePath("/dashboard");
   revalidatePath("/admin");
   revalidatePath("/tasks");
+  revalidatePath("/uploads");
   revalidatePath("/groups/create");
   revalidatePath("/groups/discover");
   if (groupId) {
@@ -578,8 +580,9 @@ export async function submitCheckInAction(input: {
   reflection?: string;
   proofText?: string;
   proofLink?: string;
-  startFileId: string;
-  endFileId: string;
+  startFileId?: string;
+  endFileId?: string;
+  taskProofs?: { taskId: string; startFileId: string; endFileId: string }[];
 }) {
   const user = await getCurrentUser();
   const membership = await requireGroupMembership(user.id, input.groupId);
@@ -604,9 +607,35 @@ export async function submitCheckInAction(input: {
     throw new Error("Add your daily tasks before submitting a check-in");
   }
 
-  const [startFile, endFile, existingCheckIn] = await Promise.all([
-    prisma.startFile.findUnique({ where: { id: input.startFileId } }),
-    prisma.endFile.findUnique({ where: { id: input.endFileId } }),
+  const taskIds = new Set(tasks.map((task) => task.id));
+  const normalizedTaskProofs =
+    input.taskProofs?.length
+      ? input.taskProofs.filter(
+          (taskProof) =>
+            taskIds.has(taskProof.taskId) &&
+            taskProof.startFileId.trim() &&
+            taskProof.endFileId.trim(),
+        )
+      : input.startFileId && input.endFileId
+        ? [
+            {
+              taskId: tasks[0]?.id ?? "",
+              startFileId: input.startFileId,
+              endFileId: input.endFileId,
+            },
+          ]
+        : [];
+
+  if (!normalizedTaskProofs.length) {
+    throw new Error("Upload both start and end proof for at least one task before submitting.");
+  }
+
+  const startFileIds = [...new Set(normalizedTaskProofs.map((taskProof) => taskProof.startFileId))];
+  const endFileIds = [...new Set(normalizedTaskProofs.map((taskProof) => taskProof.endFileId))];
+
+  const [startFiles, endFiles, existingCheckIn] = await Promise.all([
+    prisma.startFile.findMany({ where: { id: { in: startFileIds } } }),
+    prisma.endFile.findMany({ where: { id: { in: endFileIds } } }),
     prisma.checkIn.findFirst({
       where: {
         userId: user.id,
@@ -622,11 +651,21 @@ export async function submitCheckInAction(input: {
     }),
   ]);
 
-  if (!startFile || startFile.userId !== user.id || startFile.groupId !== input.groupId) {
+  if (startFiles.length !== startFileIds.length) {
+    throw new Error("One or more start proofs are invalid");
+  }
+
+  if (endFiles.length !== endFileIds.length) {
+    throw new Error("One or more end proofs are invalid");
+  }
+
+  const invalidStartProof = startFiles.find((file) => file.userId !== user.id || file.groupId !== input.groupId);
+  if (invalidStartProof) {
     throw new Error("Start proof is invalid");
   }
 
-  if (!endFile || endFile.userId !== user.id || endFile.groupId !== input.groupId) {
+  const invalidEndProof = endFiles.find((file) => file.userId !== user.id || file.groupId !== input.groupId);
+  if (invalidEndProof) {
     throw new Error("End proof is invalid");
   }
 
@@ -634,8 +673,10 @@ export async function submitCheckInAction(input: {
     throw new Error("Today's check-in has already been approved");
   }
 
-  const replacedStartFiles = existingCheckIn?.startFiles.filter((file) => file.id !== startFile.id) ?? [];
-  const replacedEndFiles = existingCheckIn?.endFiles.filter((file) => file.id !== endFile.id) ?? [];
+  const activeStartFileIds = new Set(startFileIds);
+  const activeEndFileIds = new Set(endFileIds);
+  const replacedStartFiles = existingCheckIn?.startFiles.filter((file) => !activeStartFileIds.has(file.id)) ?? [];
+  const replacedEndFiles = existingCheckIn?.endFiles.filter((file) => !activeEndFileIds.has(file.id)) ?? [];
   const penaltyCountToReverse = existingCheckIn?.penalties.length ?? 0;
   const totalPenaltyToReverse = existingCheckIn?.penalties.reduce((sum, penalty) => sum + penalty.points, 0) ?? 0;
   const missesToReverse = Math.min(membership.misses, penaltyCountToReverse);
@@ -695,14 +736,14 @@ export async function submitCheckInAction(input: {
           checkInId: nextCheckIn.id,
         },
       }),
-      tx.startFile.update({
-        where: { id: startFile.id },
+      tx.startFile.updateMany({
+        where: { id: { in: startFileIds } },
         data: {
           checkInId: nextCheckIn.id,
         },
       }),
-      tx.endFile.update({
-        where: { id: endFile.id },
+      tx.endFile.updateMany({
+        where: { id: { in: endFileIds } },
         data: {
           checkInId: nextCheckIn.id,
         },
@@ -775,7 +816,7 @@ export async function submitCheckInAction(input: {
 
   await refreshMembershipReputation(user.id, input.groupId);
   await refreshAppSurfaces(input.groupId);
-  return { success: true, checkInId: checkIn.id };
+  return { success: true, checkInId: checkIn.id, proofCount: normalizedTaskProofs.length };
 }
 
 export async function verifyCheckInAction(input: {
@@ -831,11 +872,59 @@ export async function verifyCheckInAction(input: {
     },
   });
 
-  await resolveCheckInAfterVerification(checkIn.id);
+  const resolution = await resolveCheckInAfterVerification(checkIn.id);
   if (input.verdict === "FLAG") {
     await sendFlaggedSubmissionAlert(checkIn.id);
   }
   await refreshAppSurfaces(checkIn.groupId);
+
+  return {
+    success: true,
+    resolved: resolution.resolved,
+    verdict: resolution.status,
+    penaltyApplied: resolution.status === "REJECTED",
+    sentToLeader: resolution.status === "FLAGGED",
+  };
+}
+
+export async function leaderResolveCheckInAction(input: {
+  checkInId: string;
+  verdict: "APPROVE" | "REJECT";
+}) {
+  const user = await getCurrentUser();
+
+  const checkIn = await prisma.checkIn.findUnique({
+    where: {
+      id: input.checkInId,
+    },
+    select: {
+      id: true,
+      groupId: true,
+      status: true,
+      group: {
+        select: {
+          createdById: true,
+        },
+      },
+    },
+  });
+
+  if (!checkIn) {
+    throw new Error("Check-in not found");
+  }
+
+  const membership = await requireGroupMembership(user.id, checkIn.groupId);
+  if (membership.role !== "admin" || checkIn.group.createdById !== user.id) {
+    throw new Error("Only the group leader can resolve escalated uploads");
+  }
+
+  const status = await leaderResolveCheckIn(checkIn.id, input.verdict);
+  await refreshAppSurfaces(checkIn.groupId);
+
+  return {
+    success: true,
+    status,
+  };
 }
 
 export async function adminResolveCheckInAction(input: {

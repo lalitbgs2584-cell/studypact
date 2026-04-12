@@ -4,7 +4,6 @@ import auth from "@/lib/auth/auth";
 import { headers } from "next/headers";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
-import { deleteUploadThingFile } from "@/lib/server/studypact";
 
 const f = createUploadthing();
 
@@ -45,39 +44,18 @@ export const ourFileRouter = {
     .input(z.object({
       groupId: z.string().min(1),
       slot: z.enum(["start", "end"]),
+      taskId: z.string().min(1).optional(),
     }))
 
     .middleware(async ({ input }) => ({
       ...(await requireUploadMembership(input.groupId)),
       slot: input.slot,
+      taskId: input.taskId,
     }))
 
     .onUploadComplete(async ({ metadata, file }) => {
       try {
         console.log("Upload complete for userId:", metadata.userId);
-
-        const existingDraft =
-          metadata.slot === "start"
-            ? await prisma.startFile.findFirst({
-                where: {
-                  userId: metadata.userId,
-                  groupId: metadata.groupId,
-                  checkInId: null,
-                },
-                orderBy: {
-                  uploadedAt: "desc",
-                },
-              })
-            : await prisma.endFile.findFirst({
-                where: {
-                  userId: metadata.userId,
-                  groupId: metadata.groupId,
-                  checkInId: null,
-                },
-                orderBy: {
-                  uploadedAt: "desc",
-                },
-              });
 
         const fileData = {
           id: crypto.randomUUID(),
@@ -97,29 +75,12 @@ export const ourFileRouter = {
                 data: fileData,
               });
 
-        if (existingDraft) {
-          await deleteUploadThingFile(existingDraft.storageKey);
-
-          if (metadata.slot === "start") {
-            await prisma.startFile.delete({
-              where: {
-                id: existingDraft.id,
-              },
-            });
-          } else {
-            await prisma.endFile.delete({
-              where: {
-                id: existingDraft.id,
-              },
-            });
-          }
-        }
-
         return {
           uploadedBy: metadata.userId,
           url: file.url,
           fileId: uploadedFile.id,
           slot: metadata.slot,
+          taskId: metadata.taskId ?? null,
         };
       } catch (error) {
         console.error("Failed to save file to DB:", error);

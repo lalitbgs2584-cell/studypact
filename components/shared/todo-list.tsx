@@ -48,6 +48,7 @@ type GroupOption = {
 type TodoListProps = {
   groups: GroupOption[];
   tasks: Task[];
+  showCreator?: boolean;
 };
 
 const taskCategories = [
@@ -59,7 +60,7 @@ const taskCategories = [
   "CUSTOM",
 ] as const;
 
-export function TodoList({ groups, tasks: initialTasks }: TodoListProps) {
+export function TodoList({ groups, tasks: initialTasks, showCreator = true }: TodoListProps) {
   const router = useRouter();
   const [tasks, setTasks] = useState<Task[]>(initialTasks);
   const [newTask, setNewTask] = useState("");
@@ -242,6 +243,7 @@ export function TodoList({ groups, tasks: initialTasks }: TodoListProps) {
           ) : null}
         </div>
 
+        {showCreator ? (
         <form onSubmit={addTask} className="p-6 bg-zinc-900/30 border-b border-zinc-800/40 space-y-4 relative z-10">
           <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px_140px]">
             <div className="relative">
@@ -345,6 +347,7 @@ export function TodoList({ groups, tasks: initialTasks }: TodoListProps) {
             </p>
           ) : null}
         </form>
+        ) : null}
 
         <div className="p-6 flex-1 overflow-y-auto space-y-6">
           {visibleTasks.length === 0 ? (

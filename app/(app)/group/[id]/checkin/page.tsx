@@ -108,7 +108,7 @@ export default async function GroupCheckinPage({ params }: { params: Promise<{ i
       </div>
 
       {/* The actual form */}
-      <CheckinForm groupId={id} />
+      <CheckinForm groupId={id} tasks={todayTasks} />
       <MobileGroupNav groupId={id} active="checkin" />
     </div>
   );

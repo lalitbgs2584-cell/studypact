@@ -807,7 +807,7 @@ async function applyApprovedCheckIn(checkInId: string) {
     throw new Error("Check-in not found");
   }
 
-  if (checkIn.status !== "PENDING") {
+  if (checkIn.status !== "PENDING" && checkIn.status !== "FLAGGED") {
     return checkIn.status;
   }
 
@@ -892,11 +892,49 @@ async function applyFlaggedCheckIn(checkInId: string) {
     throw new Error("Check-in not found");
   }
 
+  if (checkIn.status === "FLAGGED") {
+    return checkIn.status;
+  }
+
   if (checkIn.status !== "PENDING") {
     return checkIn.status;
   }
 
-  const reason = `Submission flagged for ${formatDayKey(checkIn.day)}`;
+  await prisma.$transaction(async (tx) => {
+    await tx.checkIn.update({
+      where: {
+        id: checkIn.id,
+      },
+      data: {
+        status: "FLAGGED",
+        verifiedAt: new Date(),
+        penaltyApplied: 0,
+        pointsAwarded: 0,
+      },
+    });
+  });
+  return "FLAGGED" as const;
+}
+
+async function applyRejectedCheckIn(checkInId: string) {
+  const checkIn = await prisma.checkIn.findUnique({
+    where: {
+      id: checkInId,
+    },
+    include: {
+      group: true,
+    },
+  });
+
+  if (!checkIn) {
+    throw new Error("Check-in not found");
+  }
+
+  if (checkIn.status !== "PENDING" && checkIn.status !== "FLAGGED") {
+    return checkIn.status;
+  }
+
+  const reason = "Check-in rejected by peer majority vote";
   const existingPenalty = await prisma.penaltyEvent.findFirst({
     where: {
       groupId: checkIn.groupId,
@@ -912,7 +950,7 @@ async function applyFlaggedCheckIn(checkInId: string) {
         id: checkIn.id,
       },
       data: {
-        status: "FLAGGED",
+        status: "REJECTED",
         verifiedAt: new Date(),
         penaltyApplied: checkIn.group.dailyPenalty,
         pointsAwarded: 0,
@@ -927,17 +965,6 @@ async function applyFlaggedCheckIn(checkInId: string) {
           checkInId: checkIn.id,
           points: checkIn.group.dailyPenalty,
           reason,
-        },
-      });
-
-      await tx.user.update({
-        where: {
-          id: checkIn.userId,
-        },
-        data: {
-          penaltyCount: {
-            increment: 1,
-          },
         },
       });
 
@@ -959,10 +986,22 @@ async function applyFlaggedCheckIn(checkInId: string) {
           inactivityStrikes: 0,
         },
       });
+
+      await tx.user.update({
+        where: {
+          id: checkIn.userId,
+        },
+        data: {
+          penaltyCount: {
+            increment: 1,
+          },
+        },
+      });
     }
   });
+
   await refreshMembershipReputation(checkIn.userId, checkIn.groupId);
-  return "FLAGGED" as const;
+  return "REJECTED" as const;
 }
 
 export async function resolveCheckInAfterVerification(checkInId: string) {
@@ -998,6 +1037,8 @@ export async function resolveCheckInAfterVerification(checkInId: string) {
   const approvalCount = checkIn.verifications.filter((verification) => verification.verdict === "APPROVE").length;
   const flagCount = checkIn.verifications.filter((verification) => verification.verdict === "FLAG").length;
   const requiredVotes = calculateRequiredReviewVotes(memberships.length);
+  const totalVotes = checkIn.verifications.length;
+  const rejectionMajority = Math.floor(totalVotes / 2) + 1;
 
   if (adminVote) {
     const status =
@@ -1027,7 +1068,7 @@ export async function resolveCheckInAfterVerification(checkInId: string) {
     };
   }
 
-  if (flagCount >= requiredVotes && flagCount > approvalCount) {
+  if (flagCount >= rejectionMajority && flagCount > approvalCount) {
     const status = await applyFlaggedCheckIn(checkIn.id);
     return {
       resolved: true,
@@ -1035,7 +1076,7 @@ export async function resolveCheckInAfterVerification(checkInId: string) {
       approvalCount,
       flagCount,
       requiredVotes,
-      resolution: "majority-vote" as const,
+      resolution: "leader-review" as const,
     };
   }
 
@@ -1074,6 +1115,31 @@ export async function platformResolveCheckIn(checkInId: string, verdict: "APPROV
   const status = await applyFlaggedCheckIn(checkInId);
   await sendFlaggedSubmissionAlert(checkInId);
   return status;
+}
+
+export async function leaderResolveCheckIn(checkInId: string, verdict: "APPROVE" | "REJECT") {
+  const checkIn = await prisma.checkIn.findUnique({
+    where: {
+      id: checkInId,
+    },
+    select: {
+      status: true,
+    },
+  });
+
+  if (!checkIn) {
+    throw new Error("Check-in not found");
+  }
+
+  if (checkIn.status !== "FLAGGED") {
+    return checkIn.status;
+  }
+
+  if (verdict === "APPROVE") {
+    return applyApprovedCheckIn(checkInId);
+  }
+
+  return applyRejectedCheckIn(checkInId);
 }
 
 export async function generateWeeklyRecapAndHallOfFame(options?: { groupId?: string }) {
