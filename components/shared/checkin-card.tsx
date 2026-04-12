@@ -1,8 +1,7 @@
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { verifyCheckInAction, reactToCheckInAction, resolveDisputeAction } from "@/lib/actions/studypact";
-import { cn } from "@/lib/utils";
 import { CheckCircle2, ExternalLink, Flag, ShieldAlert, Sparkles, Check, Gavel, X } from "lucide-react";
 
 const REACTIONS = [
@@ -129,24 +128,25 @@ export function CheckinCard({
                   <p className="mt-1 text-xs text-zinc-500">{proof.helper}</p>
 
                   {proof.url ? (
-                    <a
-                      href={proof.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className={cn(
-                        buttonVariants({ variant: "outline", size: "sm" }),
-                        "mt-4 w-full justify-center border-zinc-700 bg-zinc-900/70 text-zinc-100 hover:bg-zinc-800",
-                      )}
-                    >
-                      View {proof.label} <ExternalLink className="w-3.5 h-3.5" />
-                    </a>
+                    <>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={proof.url}
+                        alt={proof.label}
+                        loading="lazy"
+                        className="w-full rounded-xl object-cover max-h-48 mt-3 border border-zinc-800"
+                      />
+                      <a
+                        href={proof.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="mt-2 inline-flex items-center gap-1 text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+                      >
+                        Open full size <ExternalLink className="w-3 h-3" />
+                      </a>
+                    </>
                   ) : (
-                    <span
-                      className={cn(
-                        buttonVariants({ variant: "outline", size: "sm" }),
-                        "mt-4 w-full justify-center border-zinc-800 bg-zinc-950/60 text-zinc-500",
-                      )}
-                    >
+                    <span className="mt-4 flex w-full items-center justify-center rounded-md border border-zinc-800 bg-zinc-950/60 px-3 py-1.5 text-sm text-zinc-500">
                       No {proof.label}
                     </span>
                   )}
@@ -185,10 +185,7 @@ export function CheckinCard({
                   href={proofLink}
                   target="_blank"
                   rel="noreferrer"
-                  className={cn(
-                    buttonVariants({ variant: "outline", size: "sm" }),
-                    "mt-3 w-full justify-center border-zinc-700 bg-zinc-900/70 text-zinc-100 hover:bg-zinc-800",
-                  )}
+                  className="mt-3 inline-flex w-full items-center justify-center gap-1.5 rounded-md border border-zinc-700 bg-zinc-900/70 px-3 py-1.5 text-sm text-zinc-100 hover:bg-zinc-800"
                 >
                   Open Proof Link <ExternalLink className="w-3.5 h-3.5" />
                 </a>

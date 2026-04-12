@@ -3,7 +3,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { authClient } from "@/lib/auth/client";
-import { LayoutDashboard, Shield, User, LogOut, ListTodo, Plus, Trophy } from "lucide-react";
+import { LayoutDashboard, Shield, User, LogOut, ListTodo, Plus, Trophy, LayoutList, CheckSquare, Camera } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { StudyPactLogo } from "@/components/shared/studypact-logo";
 
@@ -15,6 +15,8 @@ export function Sidebar() {
     | { name?: string | null; email?: string | null; role?: string | null }
     | undefined;
   const isAdmin = user?.role === "admin";
+  const groupMatch = pathname.match(/\/group\/([^/]+)/);
+  const activeGroupId = groupMatch?.[1] ?? null;
   const routes = [
     { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
     { href: "/leaderboards", label: "Leaderboards", icon: Trophy },
@@ -58,6 +60,39 @@ export function Sidebar() {
           );
         })}
       </nav>
+
+      {activeGroupId && (
+        <>
+          <div className="mx-4 border-t border-zinc-800/50" />
+          <nav className="px-4 py-3 space-y-1">
+            <div className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2 px-2">Current Group</div>
+            {[
+              { href: `/group/${activeGroupId}/feed`, label: "Feed", icon: LayoutList },
+              { href: `/tasks`, label: "My Tasks", icon: CheckSquare },
+              { href: `/group/${activeGroupId}/checkin`, label: "Check-in", icon: Camera },
+            ].map((route) => {
+              const isActive = pathname.startsWith(route.href) && route.href !== "/tasks"
+                ? true
+                : route.href === "/tasks" && pathname.startsWith("/tasks");
+              const Icon = route.icon;
+              return (
+                <Link key={route.href} href={route.href}>
+                  <Button
+                    variant={isActive ? "secondary" : "ghost"}
+                    className={cn(
+                      "w-full justify-start gap-3 rounded-xl h-11 text-zinc-400 font-medium transition-all duration-300",
+                      isActive ? "bg-zinc-800/50 text-white shadow-inner border border-zinc-700/50" : "hover:text-white hover:bg-zinc-800/30"
+                    )}
+                  >
+                    <Icon className={cn("w-5 h-5", isActive ? "text-primary" : "")} />
+                    {route.label}
+                  </Button>
+                </Link>
+              );
+            })}
+          </nav>
+        </>
+      )}
 
       <div className="p-4 mt-auto border-t border-zinc-800/50">
         <button

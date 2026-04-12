@@ -1,9 +1,8 @@
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Settings, Users, ArrowUpRight, Files } from "lucide-react";
+import { Users, ArrowUpRight, Camera, Flame } from "lucide-react";
 import Link from "next/link";
-import { getGroupFocusLabel, getPenaltyModeLabel } from "@/lib/studypact";
+import { getGroupFocusLabel } from "@/lib/studypact";
 
 type AdminGroupCardProps = {
   id?: string;
@@ -11,80 +10,104 @@ type AdminGroupCardProps = {
   title?: string;
   description?: string | null;
   memberCount?: number;
-  fileCount?: number;
   role?: string | null;
-  href?: string;
   focusType?: string | null;
-  penaltyMode?: string | null;
+  points?: number;
+  streak?: number;
+  completionRate?: number;
+  submittedToday?: boolean;
+  todayStatus?: string | null;
 };
 
 export function AdminGroupCard({
   id = "1",
-  badge = "CS101 Study Group",
-  title = "Backend Engineering Bootcampt",
-  description = "Manage your shared accountability space.",
-  memberCount = 12,
-  fileCount = 0,
-  role = "admin",
-  href,
+  badge = "Enrolled Group",
+  title = "Study Group",
+  description,
+  memberCount = 0,
+  role = "member",
   focusType = "GENERAL",
-  penaltyMode = "BURN",
+  points = 0,
+  streak = 0,
+  completionRate = 0,
+  submittedToday = false,
+  todayStatus,
 }: AdminGroupCardProps) {
-  const destination = href ?? `/group/${id}/feed`;
-  const roleLabel = role ? role[0].toUpperCase() + role.slice(1) : "Member";
+  const isAdmin = role === "admin";
 
   return (
-    <Card className="bg-black/60 border-zinc-800 backdrop-blur-xl relative overflow-hidden group">
-      <div className="absolute inset-0 bg-gradient-to-br from-primary/5 to-purple-500/5 opacity-0 group-hover:opacity-100 transition-opacity"></div>
-      <CardHeader className="flex flex-row items-start justify-between pb-4">
-        <div>
-          <Badge className="mb-2 bg-indigo-500/10 text-indigo-400 font-semibold border-indigo-500/20">{badge}</Badge>
-          <div className="mb-3 flex flex-wrap gap-2 text-xs">
-            <span className="rounded-full border border-zinc-700 bg-zinc-900 px-3 py-1 text-zinc-300">
-              {getGroupFocusLabel(focusType || "GENERAL")}
-            </span>
-            <span className="rounded-full border border-zinc-700 bg-zinc-900 px-3 py-1 text-zinc-300">
-              {getPenaltyModeLabel(penaltyMode || "BURN")}
-            </span>
-          </div>
-          <CardTitle className="text-2xl text-white font-bold tracking-tight">{title}</CardTitle>
-          <p className="mt-2 text-sm text-zinc-400 max-w-xl">{description || "No description added for this group yet."}</p>
-        </div>
-        <Button variant="outline" size="icon" className="border-zinc-700 bg-zinc-800/50 text-zinc-300 hover:text-white">
-          <Settings className="w-4 h-4" />
-        </Button>
-      </CardHeader>
-      <CardContent>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-2">
-          <div className="bg-zinc-900/50 border border-zinc-800/80 rounded-xl p-4 flex flex-col">
-            <span className="text-zinc-500 text-xs font-semibold uppercase tracking-wider mb-1">Members</span>
-            <div className="flex items-center gap-2 mt-auto">
-              <Users className="w-4 h-4 text-zinc-400" />
-              <span className="text-2xl font-bold text-white">{memberCount}</span>
+    <div className="rounded-2xl border border-zinc-800 bg-black/50 backdrop-blur-xl overflow-hidden flex flex-col">
+      {/* Top accent */}
+      <div className={`h-1 w-full ${isAdmin ? "bg-gradient-to-r from-primary to-indigo-500" : "bg-gradient-to-r from-zinc-700 to-zinc-600"}`} />
+
+      <div className="p-5 flex flex-col gap-4 flex-1">
+        {/* Header row */}
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 mb-1.5">
+              <Badge className={`text-xs ${isAdmin ? "bg-primary/10 text-primary border-primary/20" : "bg-zinc-800 text-zinc-400 border-zinc-700"}`}>
+                {badge}
+              </Badge>
+              <span className="text-xs text-zinc-600 border border-zinc-800 rounded-full px-2 py-0.5">
+                {getGroupFocusLabel(focusType || "GENERAL")}
+              </span>
             </div>
-          </div>
-          <div className="bg-zinc-900/50 border border-zinc-800/80 rounded-xl p-4 flex flex-col">
-            <span className="text-zinc-500 text-xs font-semibold uppercase tracking-wider mb-1">Your Role</span>
-            <div className="flex items-center gap-2 mt-auto">
-              <span className="text-2xl font-bold text-emerald-400">{roleLabel}</span>
-            </div>
-          </div>
-          <div className="bg-zinc-900/50 border border-zinc-800/80 rounded-xl p-4 flex flex-col">
-            <span className="text-zinc-500 text-xs font-semibold uppercase tracking-wider mb-1">Shared Files</span>
-            <div className="flex items-center gap-2 mt-auto">
-              <Files className="w-4 h-4 text-emerald-500/70" />
-              <span className="text-2xl font-bold text-emerald-400">{fileCount}</span>
-            </div>
-          </div>
-          <div className="bg-zinc-900/50 border border-zinc-800/80 rounded-xl p-4 flex items-center justify-center">
-            <Link href={destination} className="w-full h-full flex items-center justify-center">
-              <Button variant="ghost" className="w-full h-full rounded-lg text-primary hover:text-primary hover:bg-primary/10">
-                View Feed <ArrowUpRight className="w-4 h-4 ml-1" />
-              </Button>
-            </Link>
+            <h3 className="text-lg font-bold text-white truncate">{title}</h3>
+            {description && (
+              <p className="text-xs text-zinc-500 mt-0.5 line-clamp-1">{description}</p>
+            )}
           </div>
         </div>
-      </CardContent>
-    </Card>
+
+        {/* Stats row */}
+        <div className="grid grid-cols-3 gap-2">
+          <div className="rounded-xl bg-zinc-900/60 border border-zinc-800 px-3 py-2.5 text-center">
+            <p className="text-xs text-zinc-500 mb-1">Points</p>
+            <p className="text-lg font-bold text-white">{points}</p>
+          </div>
+          <div className="rounded-xl bg-zinc-900/60 border border-zinc-800 px-3 py-2.5 text-center">
+            <p className="text-xs text-zinc-500 mb-1">Streak</p>
+            <p className="text-lg font-bold text-white flex items-center justify-center gap-1">
+              <Flame className="w-3.5 h-3.5 text-orange-400" />{streak}
+            </p>
+          </div>
+          <div className="rounded-xl bg-zinc-900/60 border border-zinc-800 px-3 py-2.5 text-center">
+            <p className="text-xs text-zinc-500 mb-1">Members</p>
+            <p className="text-lg font-bold text-white flex items-center justify-center gap-1">
+              <Users className="w-3.5 h-3.5 text-zinc-400" />{memberCount}
+            </p>
+          </div>
+        </div>
+
+        {/* Today's status */}
+        <div className={`rounded-xl border px-4 py-2.5 text-sm flex items-center justify-between ${
+          submittedToday
+            ? "border-emerald-500/30 bg-emerald-500/5 text-emerald-300"
+            : "border-amber-500/20 bg-amber-500/5 text-amber-300"
+        }`}>
+          <span>
+            {submittedToday
+              ? todayStatus === "APPROVED" ? "✓ Approved today" : "✓ Submitted — pending review"
+              : "⚠ Proof not submitted yet"}
+          </span>
+          <span className="text-xs opacity-60">{completionRate}% overall</span>
+        </div>
+
+        {/* Action buttons */}
+        <div className="grid grid-cols-2 gap-2 mt-auto">
+          <Link href={`/group/${id}/feed`}>
+            <Button variant="outline" className="w-full border-zinc-700 text-zinc-300 hover:text-white gap-1.5 text-sm">
+              Feed <ArrowUpRight className="w-3.5 h-3.5" />
+            </Button>
+          </Link>
+          <Link href={`/group/${id}/checkin`}>
+            <Button className="w-full gap-1.5 text-sm bg-primary hover:bg-primary/90">
+              <Camera className="w-3.5 h-3.5" />
+              {submittedToday ? "Resubmit" : "Upload Proof"}
+            </Button>
+          </Link>
+        </div>
+      </div>
+    </div>
   );
 }

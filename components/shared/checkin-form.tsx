@@ -7,6 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { UploadButton } from "@/lib/uploadthing/uploadthing";
 import { submitCheckInAction } from "@/lib/actions/studypact";
 import { Camera, Loader2, Upload } from "lucide-react";
+import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 
 type CheckinFormProps = {
@@ -67,7 +68,7 @@ function UploadPanel({
                 onUploaded(item?.serverData ? { fileId: item.serverData.fileId, url: item.url } : null);
               }}
               onUploadError={(error: Error) => {
-                alert(`Upload failed: ${error.message}`);
+                toast.error(`Upload failed: ${error.message}`);
               }}
             />
           </div>
@@ -93,7 +94,7 @@ function UploadPanel({
                 onUploaded(item?.serverData ? { fileId: item.serverData.fileId, url: item.url } : null);
               }}
               onUploadError={(error: Error) => {
-                alert(`Upload failed: ${error.message}`);
+                toast.error(`Upload failed: ${error.message}`);
               }}
             />
           </div>

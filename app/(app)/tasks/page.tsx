@@ -18,28 +18,32 @@ export default async function TasksPage() {
 
   await ensureRecurringTasksForUser(session.user.id);
 
-  const [memberships, tasks] = await Promise.all([
+  const [memberships, tasks, todayCheckIns] = await Promise.all([
     prisma.userGroup.findMany({
-      where: {
-        userId: session.user.id,
-      },
-      include: {
-        group: true,
-      },
-      orderBy: {
-        joinedAt: "desc",
-      },
+      where: { userId: session.user.id },
+      include: { group: true },
+      orderBy: { joinedAt: "desc" },
     }),
     prisma.task.findMany({
-      where: {
-        userId: session.user.id,
-        day: startOfDay(),
-      },
-      orderBy: {
-        createdAt: "asc",
+      where: { userId: session.user.id, day: startOfDay() },
+      orderBy: { createdAt: "asc" },
+      select: {
+        id: true,
+        title: true,
+        status: true,
+        groupId: true,
+        category: true,
+        targetMinutes: true,
+        scope: true,
       },
     }),
+    prisma.checkIn.findMany({
+      where: { userId: session.user.id, day: startOfDay() },
+      select: { groupId: true },
+    }),
   ]);
+
+  const submittedGroupIds = new Set(todayCheckIns.map((c) => c.groupId));
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-8 duration-700 h-full max-w-4xl mx-auto flex flex-col min-h-[85vh]">
@@ -61,6 +65,7 @@ export default async function TasksPage() {
             role: membership.role,
             taskPostingMode: membership.group.taskPostingMode,
             focusType: membership.group.focusType,
+            hasSubmittedToday: submittedGroupIds.has(membership.groupId),
           }))}
           tasks={tasks.map((task) => ({
             id: task.id,
@@ -69,6 +74,7 @@ export default async function TasksPage() {
             groupId: task.groupId,
             category: task.category,
             targetMinutes: task.targetMinutes,
+            scope: task.scope,
           }))}
         />
       </div>

@@ -272,6 +272,7 @@ model Task {
   templateId     String?
   isChallengeMode Boolean  @default(false)
   earlyBirdCutoff DateTime?
+  scope           TaskScope @default(PERSONAL)
   user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
   group       Group       @relation(fields: [groupId], references: [id], onDelete: Cascade)
   checkIn     CheckIn?    @relation(fields: [checkInId], references: [id], onDelete: SetNull)

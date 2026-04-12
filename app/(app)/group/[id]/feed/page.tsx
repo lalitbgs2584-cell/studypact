@@ -5,6 +5,7 @@ import { CheckinForm } from "@/components/shared/checkin-form";
 import { GroupChatPanel } from "@/components/shared/group-chat-panel";
 import { GroupNav } from "@/components/shared/group-nav";
 import { MidnightCountdown } from "@/components/shared/midnight-countdown";
+import { MobileGroupNav } from "@/components/shared/mobile-group-nav";
 import { prisma } from "@/lib/db";
 import {
   addDays,
@@ -209,7 +210,7 @@ export default async function GroupFeedPage({ params, searchParams }: FeedPagePr
     .slice(0, 12);
 
   return (
-    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-8 duration-700">
+    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-8 duration-700 pb-16 md:pb-0">
       <div className="flex items-center gap-4 border-b border-zinc-800/80 pb-6">
         <div className="p-3 rounded-2xl bg-indigo-500/10 border border-indigo-500/20">
           <Users className="w-8 h-8 text-indigo-400" />
@@ -226,6 +227,41 @@ export default async function GroupFeedPage({ params, searchParams }: FeedPagePr
       </div>
 
       <GroupNav groupId={id} active="feed" />
+
+      {/* Today's Action banner */}
+      {userHasSubmittedToday ? (
+        <div className="flex items-center justify-between gap-4 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-5 py-4">
+          <div className="flex items-center gap-3">
+            <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+            <div>
+              <p className="text-sm font-semibold text-emerald-300">You&apos;ve submitted today</p>
+              <p className="text-xs text-emerald-400/70 mt-0.5">
+                Submitted at {todayCheckInByUserId.get(user.id)?.createdAt.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })} · {todayCheckInByUserId.get(user.id)?.status === "APPROVED" ? "Approved ✓" : "Pending peer review"}
+              </p>
+            </div>
+          </div>
+          <MidnightCountdown submitted={true} />
+        </div>
+      ) : (
+        <div className="flex items-center justify-between gap-4 rounded-2xl border border-amber-500/20 bg-amber-500/10 px-5 py-4">
+          <div className="flex items-center gap-3">
+            <Clock3 className="w-5 h-5 text-amber-400 shrink-0" />
+            <div>
+              <p className="text-sm font-semibold text-amber-300">Submit today&apos;s proof before midnight</p>
+              <p className="text-xs text-amber-400/70 mt-0.5">Upload your start photo, end photo, and reflection to stay in good standing.</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 shrink-0">
+            <MidnightCountdown submitted={false} />
+            <a
+              href="#checkin-form"
+              className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-2 text-sm font-medium text-amber-300 hover:bg-amber-500/20 transition-colors whitespace-nowrap"
+            >
+              Submit Now →
+            </a>
+          </div>
+        </div>
+      )}
 
       {/* Hall of Fame */}
       {hallOfFame && (
@@ -316,7 +352,7 @@ export default async function GroupFeedPage({ params, searchParams }: FeedPagePr
         </div>
 
         <div className="space-y-6">
-          <div className="rounded-3xl border border-zinc-800/70 bg-black/20 p-5 backdrop-blur-lg">
+          <div id="checkin-form" className="rounded-3xl border border-zinc-800/70 bg-black/20 p-5 backdrop-blur-lg">
             <div className="mb-4 flex items-center justify-between gap-4">
               <div>
                 <h3 className="text-lg font-semibold text-zinc-100">Today&apos;s Check-in</h3>
@@ -367,37 +403,57 @@ export default async function GroupFeedPage({ params, searchParams }: FeedPagePr
               </div>
 
               <div className="space-y-3">
-                {leaderboardMembers.slice(0, 5).map((member, index) => {
-                  const finish = todayCheckInByUserId.get(member.userId);
+                {(() => {
+                  const myRank = leaderboardMembers.findIndex((m) => m.userId === user.id);
                   return (
-                    <div key={member.userId} className="flex items-center justify-between rounded-xl border border-zinc-800 bg-zinc-900/40 px-3 py-3">
-                      <div>
-                        <p className="text-sm font-medium text-white flex items-center gap-1.5">
-                          {index + 1}. {member.user.name}
-                          {member.earlyBirdCount > 0 && <span className="text-xs text-amber-400">🐦 {member.earlyBirdCount}</span>}
+                    <>
+                      {myRank >= 0 && (
+                        <p className="text-xs text-zinc-500">
+                          Your rank: #{myRank + 1} of {leaderboardMembers.length} members
                         </p>
-                        {board === "early" ? (
-                          <p className="text-xs text-zinc-500">{finish ? `Submitted ${finish.createdAt.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}` : "No submission yet"} | {member.streak} streak</p>
-                        ) : (
-                          <p className="text-xs text-zinc-500">{member.completions} completions | {member.misses} misses | {member.reputationScore} rep</p>
-                        )}
-                      </div>
-                      <div className="text-right">
-                        {board === "early" ? (
-                          <>
-                            <p className="text-sm font-semibold text-primary">{finish ? `#${index + 1} today` : "Pending"}</p>
-                            <p className="text-xs text-zinc-500">{member.points} pts | {member.reputationScore} rep</p>
-                          </>
-                        ) : (
-                          <>
-                            <p className="text-sm font-semibold text-primary">{member.points} pts</p>
-                            <p className="text-xs text-zinc-500">{member.streak} streak | best: {member.bestStreak}</p>
-                          </>
-                        )}
-                      </div>
-                    </div>
+                      )}
+                      {leaderboardMembers.slice(0, 5).map((member, index) => {
+                        const finish = todayCheckInByUserId.get(member.userId);
+                        const isMe = member.userId === user.id;
+                        const rankCls = board === "points"
+                          ? index === 0 ? "border-l-4 border-amber-400 bg-amber-500/5"
+                          : index === 1 ? "border-l-4 border-zinc-400 bg-zinc-400/5"
+                          : index === 2 ? "border-l-4 border-amber-700/60 bg-amber-700/5"
+                          : ""
+                          : "";
+                        return (
+                          <div key={member.userId} className={`flex items-center justify-between rounded-xl border border-zinc-800 bg-zinc-900/40 px-3 py-3 ${rankCls} ${isMe ? "ring-1 ring-primary/40" : ""}`}>
+                            <div>
+                              <p className="text-sm font-medium text-white flex items-center gap-1.5">
+                                {board === "points" && index < 3 ? (["🥇","🥈","🥉"][index]) : `${index + 1}.`} {member.user.name}
+                                {isMe && <span className="text-zinc-400 text-xs">(you)</span>}
+                                {member.earlyBirdCount > 0 && <span className="text-xs text-amber-400">🐦 {member.earlyBirdCount}</span>}
+                              </p>
+                              {board === "early" ? (
+                                <p className="text-xs text-zinc-500">{finish ? `Submitted ${finish.createdAt.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}` : "No submission yet"} | {member.streak} streak</p>
+                              ) : (
+                                <p className="text-xs text-zinc-500">{member.completions} completions | {member.misses} misses | {member.reputationScore} rep</p>
+                              )}
+                            </div>
+                            <div className="text-right">
+                              {board === "early" ? (
+                                <>
+                                  <p className="text-sm font-semibold text-primary">{finish ? `#${index + 1} today` : "Pending"}</p>
+                                  <p className="text-xs text-zinc-500">{member.points} pts | {member.reputationScore} rep</p>
+                                </>
+                              ) : (
+                                <>
+                                  <p className="text-sm font-semibold text-primary">{member.points} pts</p>
+                                  <p className="text-xs text-zinc-500">{member.streak} streak | best: {member.bestStreak}</p>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </>
                   );
-                })}
+                })()}
               </div>
             </div>
 
@@ -488,6 +544,7 @@ export default async function GroupFeedPage({ params, searchParams }: FeedPagePr
           </div>
         </div>
       </div>
+      <MobileGroupNav groupId={id} active="feed" />
     </div>
   );
 }

@@ -465,6 +465,7 @@ export async function createTaskAction(input: {
         templateId,
         isChallengeMode: scope === "GROUP" ? Boolean(input.isChallengeMode) : false,
         earlyBirdCutoff,
+        scope: scope as "PERSONAL" | "GROUP",
       }));
 
     if (tasksToCreate.length) {
@@ -517,6 +518,7 @@ export async function createTaskAction(input: {
       templateId,
       isChallengeMode: Boolean(input.isChallengeMode),
       earlyBirdCutoff,
+      scope,
     },
   });
 

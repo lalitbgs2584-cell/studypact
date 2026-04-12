@@ -17,6 +17,8 @@ import {
   ListTodo,
   Sparkles,
   Trash2,
+  Users,
+  ArrowRight,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -31,6 +33,7 @@ type Task = {
   groupId: string;
   category: string;
   targetMinutes?: number | null;
+  scope?: string | null;
 };
 
 type GroupOption = {
@@ -39,6 +42,7 @@ type GroupOption = {
   role?: string | null;
   taskPostingMode?: string | null;
   focusType?: string | null;
+  hasSubmittedToday?: boolean;
 };
 
 type TodoListProps = {
@@ -149,6 +153,13 @@ export function TodoList({ groups, tasks: initialTasks }: TodoListProps) {
     () => tasks.filter((task) => task.groupId === selectedGroupId),
     [selectedGroupId, tasks],
   );
+
+  const groupTasks = useMemo(() => visibleTasks.filter((t) => t.scope === "GROUP"), [visibleTasks]);
+  const personalTasks = useMemo(() => visibleTasks.filter((t) => t.scope !== "GROUP"), [visibleTasks]);
+
+  const hasSubmittedToday = selectedGroup?.hasSubmittedToday ?? false;
+  const hasCompletedGroupTask = groupTasks.some((t) => t.completed);
+  const showCheckinCallout = hasCompletedGroupTask && !hasSubmittedToday;
 
   const completedCount = visibleTasks.filter((task) => task.completed).length;
   const pendingCount = visibleTasks.filter((task) => !task.completed).length;
@@ -335,74 +346,149 @@ export function TodoList({ groups, tasks: initialTasks }: TodoListProps) {
           ) : null}
         </form>
 
-        <div className="p-6 flex-1 overflow-y-auto">
+        <div className="p-6 flex-1 overflow-y-auto space-y-6">
           {visibleTasks.length === 0 ? (
             <div className="h-40 flex flex-col items-center justify-center text-zinc-500 space-y-4">
               <CalendarCheck className="w-12 h-12 opacity-20" />
               <p>No tasks for this group today. Add one above to get started.</p>
             </div>
           ) : (
-            <div className="space-y-3">
-              <AnimatePresence>
-                {visibleTasks.map((task) => (
-                  <motion.div
-                    key={task.id}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, scale: 0.95 }}
-                    transition={{ duration: 0.2 }}
-                    className={`group flex items-center justify-between p-4 rounded-xl border transition-all duration-300 ${
-                      task.completed
-                        ? "bg-primary/5 border-primary/20 shadow-[inset_4px_0_0_rgba(var(--primary),0.5)]"
-                        : "bg-zinc-900/40 border-zinc-800/80 hover:border-zinc-700"
-                    }`}
-                  >
-                    <div className="flex items-center gap-4 flex-1">
-                      <div className="opacity-0 group-hover:opacity-40 transition-opacity cursor-grab hidden sm:block">
-                        <GripVertical className="w-4 h-4 text-zinc-500" />
-                      </div>
-
-                      <Checkbox
-                        checked={task.completed}
-                        onCheckedChange={() => toggleTask(task.id)}
-                        className={`w-6 h-6 rounded-md transition-all ${
+            <>
+              {/* Section A: Group Tasks */}
+              {groupTasks.length > 0 && (
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <Users className="w-3.5 h-3.5 text-indigo-400" />
+                    <p className="text-xs font-semibold uppercase tracking-wider text-indigo-400">Today&apos;s Group Tasks</p>
+                  </div>
+                  <p className="text-xs text-zinc-500 -mt-1">Posted by your group leader — complete these before midnight</p>
+                  <AnimatePresence>
+                    {groupTasks.map((task) => (
+                      <motion.div
+                        key={task.id}
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, scale: 0.95 }}
+                        transition={{ duration: 0.2 }}
+                        className={`flex items-center justify-between p-4 rounded-xl border transition-all duration-300 ${
                           task.completed
-                            ? "data-[state=checked]:bg-primary data-[state=checked]:border-primary shadow-[0_0_10px_rgba(var(--primary),0.4)]"
-                            : "border-zinc-600 hover:border-primary/50"
+                            ? "bg-indigo-500/10 border-indigo-500/30 shadow-[inset_4px_0_0_rgba(99,102,241,0.5)]"
+                            : "bg-indigo-500/5 border-indigo-500/20 hover:border-indigo-500/40"
                         }`}
-                      />
-
-                      <div className="flex-1">
-                        <span className={`text-base font-medium transition-all duration-300 ${
-                          task.completed ? "text-zinc-500 line-through" : "text-zinc-200"
-                        }`}>
-                          {task.text}
-                        </span>
-                        <div className="mt-2 flex flex-wrap gap-2 text-xs">
-                          <span className="rounded-full border border-zinc-700 bg-zinc-950 px-2 py-1 text-zinc-300">
-                            {getTaskCategoryLabel(task.category)}
-                          </span>
-                          {task.targetMinutes ? (
-                            <span className="rounded-full border border-zinc-700 bg-zinc-950 px-2 py-1 text-zinc-300">
-                              {task.targetMinutes} min
+                      >
+                        <div className="flex items-center gap-4 flex-1">
+                          <Checkbox
+                            checked={task.completed}
+                            onCheckedChange={() => toggleTask(task.id)}
+                            className={`w-6 h-6 rounded-md transition-all ${
+                              task.completed
+                                ? "data-[state=checked]:bg-indigo-500 data-[state=checked]:border-indigo-500"
+                                : "border-indigo-500/40 hover:border-indigo-400"
+                            }`}
+                          />
+                          <div className="flex-1">
+                            <span className={`text-base font-medium transition-all duration-300 ${
+                              task.completed ? "text-zinc-500 line-through" : "text-zinc-200"
+                            }`}>
+                              {task.text}
                             </span>
-                          ) : null}
+                            <div className="mt-2 flex flex-wrap gap-2 text-xs">
+                              <span className="rounded-full border border-indigo-500/20 bg-indigo-500/10 px-2 py-1 text-indigo-300">
+                                {getTaskCategoryLabel(task.category)}
+                              </span>
+                              {task.targetMinutes ? (
+                                <span className="rounded-full border border-zinc-700 bg-zinc-950 px-2 py-1 text-zinc-300">
+                                  {task.targetMinutes} min
+                                </span>
+                              ) : null}
+                            </div>
+                          </div>
                         </div>
-                      </div>
-                    </div>
+                      </motion.div>
+                    ))}
+                  </AnimatePresence>
+                </div>
+              )}
 
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => deleteTask(task.id)}
-                      className="opacity-0 group-hover:opacity-100 hover:bg-red-500/10 hover:text-red-400 text-zinc-600 transition-all ml-2"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
-                  </motion.div>
-                ))}
-              </AnimatePresence>
-            </div>
+              {/* Section B: Personal Tasks */}
+              {personalTasks.length > 0 && (
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <ListTodo className="w-3.5 h-3.5 text-zinc-400" />
+                    <p className="text-xs font-semibold uppercase tracking-wider text-zinc-400">My Tasks</p>
+                  </div>
+                  <AnimatePresence>
+                    {personalTasks.map((task) => (
+                      <motion.div
+                        key={task.id}
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, scale: 0.95 }}
+                        transition={{ duration: 0.2 }}
+                        className={`group flex items-center justify-between p-4 rounded-xl border transition-all duration-300 ${
+                          task.completed
+                            ? "bg-primary/5 border-primary/20 shadow-[inset_4px_0_0_rgba(var(--primary),0.5)]"
+                            : "bg-zinc-900/40 border-zinc-800/80 hover:border-zinc-700"
+                        }`}
+                      >
+                        <div className="flex items-center gap-4 flex-1">
+                          <div className="opacity-0 group-hover:opacity-40 transition-opacity cursor-grab hidden sm:block">
+                            <GripVertical className="w-4 h-4 text-zinc-500" />
+                          </div>
+                          <Checkbox
+                            checked={task.completed}
+                            onCheckedChange={() => toggleTask(task.id)}
+                            className={`w-6 h-6 rounded-md transition-all ${
+                              task.completed
+                                ? "data-[state=checked]:bg-primary data-[state=checked]:border-primary shadow-[0_0_10px_rgba(var(--primary),0.4)]"
+                                : "border-zinc-600 hover:border-primary/50"
+                            }`}
+                          />
+                          <div className="flex-1">
+                            <span className={`text-base font-medium transition-all duration-300 ${
+                              task.completed ? "text-zinc-500 line-through" : "text-zinc-200"
+                            }`}>
+                              {task.text}
+                            </span>
+                            <div className="mt-2 flex flex-wrap gap-2 text-xs">
+                              <span className="rounded-full border border-zinc-700 bg-zinc-950 px-2 py-1 text-zinc-300">
+                                {getTaskCategoryLabel(task.category)}
+                              </span>
+                              {task.targetMinutes ? (
+                                <span className="rounded-full border border-zinc-700 bg-zinc-950 px-2 py-1 text-zinc-300">
+                                  {task.targetMinutes} min
+                                </span>
+                              ) : null}
+                            </div>
+                          </div>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => deleteTask(task.id)}
+                          className="opacity-0 group-hover:opacity-100 hover:bg-red-500/10 hover:text-red-400 text-zinc-600 transition-all ml-2"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </motion.div>
+                    ))}
+                  </AnimatePresence>
+                </div>
+              )}
+
+              {/* Check-in callout */}
+              {showCheckinCallout && (
+                <div className="flex items-center justify-between gap-4 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3">
+                  <p className="text-sm text-emerald-300">Tasks marked done! Don&apos;t forget to submit your proof.</p>
+                  <a
+                    href={`/group/${selectedGroupId}/feed`}
+                    className="shrink-0 flex items-center gap-1.5 text-xs font-medium text-emerald-300 border border-emerald-500/30 rounded-lg px-3 py-1.5 hover:bg-emerald-500/20 transition-colors"
+                  >
+                    Go to Check-in <ArrowRight className="w-3.5 h-3.5" />
+                  </a>
+                </div>
+              )}
+            </>
           )}
         </div>
       </CardContent>
