@@ -149,6 +149,15 @@ export async function ensureRecurringTasksForUser(userId: string, targetDay = st
   return missingTasks.length;
 }
 
+export async function materializeAllGroupsForToday(targetDay = startOfDay()) {
+  const groups = await prisma.group.findMany({ select: { id: true } });
+  let totalCreated = 0;
+  for (const group of groups) {
+    totalCreated += await materializeGroupRecurringTasks(group.id, targetDay);
+  }
+  return { groups: groups.length, tasksCreated: totalCreated };
+}
+
 export async function materializeGroupRecurringTasks(groupId: string, targetDay = startOfDay()) {
   const [memberships, templates] = await Promise.all([
     prisma.userGroup.findMany({
@@ -625,6 +634,7 @@ export async function syncMissedCheckInPenalties(options?: {
           id: true,
           userId: true,
           status: true,
+          isChallengeMode: true,
         },
       }),
       prisma.checkIn.findMany({
@@ -715,12 +725,15 @@ export async function syncMissedCheckInPenalties(options?: {
         ? `Missing end proof for ${targetKey}`
         : `Missed daily check-in for ${targetKey}`;
 
+      const hasChallengeTask = taskIds.some(
+        (id) => tasks.find((t) => t.id === id)?.isChallengeMode,
+      );
+      const penaltyPoints = hasChallengeTask
+        ? membership.group.dailyPenalty * 2
+        : membership.group.dailyPenalty;
+
       const existingPenalty = await prisma.penaltyEvent.findFirst({
-        where: {
-          groupId: group.id,
-          userId: membership.userId,
-          reason,
-        },
+        where: { groupId: group.id, userId: membership.userId, reason },
       });
 
       if (existingPenalty) {
@@ -734,62 +747,38 @@ export async function syncMissedCheckInPenalties(options?: {
             userId: membership.userId,
             groupId: group.id,
             checkInId: checkIn?.id,
-            points: membership.group.dailyPenalty,
+            points: penaltyPoints,
             reason,
           },
         });
 
         await tx.user.update({
-          where: {
-            id: membership.userId,
-          },
-          data: {
-            penaltyCount: {
-              increment: 1,
-            },
-          },
+          where: { id: membership.userId },
+          data: { penaltyCount: { increment: 1 } },
         });
 
         await tx.userGroup.update({
-          where: {
-            userId_groupId: {
-              userId: membership.userId,
-              groupId: group.id,
-            },
-          },
+          where: { userId_groupId: { userId: membership.userId, groupId: group.id } },
           data: {
-            points: {
-              decrement: membership.group.dailyPenalty,
-            },
-            misses: {
-              increment: 1,
-            },
+            points: { decrement: penaltyPoints },
+            misses: { increment: 1 },
             streak: 0,
             inactivityStrikes: 0,
           },
         });
 
         await tx.task.updateMany({
-          where: {
-            id: {
-              in: taskIds,
-            },
-            status: "PENDING",
-          },
-          data: {
-            status: "MISSED",
-          },
+          where: { id: { in: taskIds }, status: "PENDING" },
+          data: { status: "MISSED" },
         });
 
         if (checkIn) {
           await tx.checkIn.update({
-            where: {
-              id: checkIn.id,
-            },
+            where: { id: checkIn.id },
             data: {
               status: "FLAGGED",
               verifiedAt: new Date(),
-              penaltyApplied: membership.group.dailyPenalty,
+              penaltyApplied: penaltyPoints,
               pointsAwarded: 0,
             },
           });
@@ -836,7 +825,9 @@ async function applyApprovedCheckIn(checkInId: string) {
   }
 
   const completedTasks = checkIn.tasks.filter((task) => task.status === "COMPLETED").length;
-  const awardedPoints = Math.max(10, completedTasks * 5);
+  const isChallengeMode = checkIn.tasks.some((task) => task.isChallengeMode);
+  const basePoints = Math.max(10, completedTasks * 5);
+  const awardedPoints = isChallengeMode ? basePoints * 2 : basePoints;
   const targetKey = formatDayKey(checkIn.day);
   const previousKey = membership.lastCheckInAt ? formatDayKey(membership.lastCheckInAt) : null;
   const previousDayKey = formatDayKey(addDays(checkIn.day, -1));
@@ -882,6 +873,8 @@ async function applyApprovedCheckIn(checkInId: string) {
   ]);
 
   await refreshMembershipReputation(checkIn.userId, checkIn.groupId);
+  await updateBestStreakAfterCheckIn(checkIn.userId, checkIn.groupId);
+  await awardMilestoneBadges(checkIn.userId, checkIn.groupId);
   return "APPROVED" as const;
 }
 
@@ -1081,4 +1074,155 @@ export async function platformResolveCheckIn(checkInId: string, verdict: "APPROV
   const status = await applyFlaggedCheckIn(checkInId);
   await sendFlaggedSubmissionAlert(checkInId);
   return status;
+}
+
+export async function generateWeeklyRecapAndHallOfFame(options?: { groupId?: string }) {
+  const today = startOfDay();
+  const weekStart = addDays(today, -6);
+
+  const groups = options?.groupId
+    ? [{ id: options.groupId }]
+    : await prisma.group.findMany({ select: { id: true } });
+
+  for (const group of groups) {
+    const [memberships, weeklyCheckIns, weeklyPenalties] = await Promise.all([
+      prisma.userGroup.findMany({
+        where: { groupId: group.id },
+        include: { user: { select: { id: true, name: true } } },
+      }),
+      prisma.checkIn.findMany({
+        where: { groupId: group.id, day: { gte: weekStart, lte: today }, status: "APPROVED" },
+        select: { userId: true },
+      }),
+      prisma.penaltyEvent.findMany({
+        where: { groupId: group.id, createdAt: { gte: weekStart } },
+        select: { userId: true, points: true },
+      }),
+    ]);
+
+    if (!memberships.length) continue;
+
+    const completionsByUser = new Map<string, number>();
+    for (const c of weeklyCheckIns) {
+      completionsByUser.set(c.userId, (completionsByUser.get(c.userId) ?? 0) + 1);
+    }
+
+    const penaltiesByUser = new Map<string, number>();
+    for (const p of weeklyPenalties) {
+      penaltiesByUser.set(p.userId, (penaltiesByUser.get(p.userId) ?? 0) + p.points);
+    }
+
+    const mvp = memberships.reduce((best, m) =>
+      (completionsByUser.get(m.userId) ?? 0) > (completionsByUser.get(best.userId) ?? 0) ? m : best,
+    );
+    const penaltyLeader = memberships.reduce((worst, m) =>
+      (penaltiesByUser.get(m.userId) ?? 0) > (penaltiesByUser.get(worst.userId) ?? 0) ? m : worst,
+    );
+    const longestStreakMember = memberships.reduce((best, m) => m.streak > best.streak ? m : best);
+
+    const memberStats = memberships.map((m) => ({
+      userId: m.userId,
+      name: m.user.name,
+      completions: completionsByUser.get(m.userId) ?? 0,
+      penalties: penaltiesByUser.get(m.userId) ?? 0,
+    }));
+
+    await prisma.weeklyRecap.upsert({
+      where: { groupId_weekStart: { groupId: group.id, weekStart } },
+      update: {
+        totalCompleted: weeklyCheckIns.length,
+        mvpUserId: mvp.userId,
+        mvpName: mvp.user.name,
+        penaltyLeaderUserId: penaltyLeader.userId,
+        penaltyLeaderName: penaltyLeader.user.name,
+        longestStreak: longestStreakMember.streak,
+        longestStreakName: longestStreakMember.user.name,
+        memberStats,
+      },
+      create: {
+        groupId: group.id,
+        weekStart,
+        totalCompleted: weeklyCheckIns.length,
+        mvpUserId: mvp.userId,
+        mvpName: mvp.user.name,
+        penaltyLeaderUserId: penaltyLeader.userId,
+        penaltyLeaderName: penaltyLeader.user.name,
+        longestStreak: longestStreakMember.streak,
+        longestStreakName: longestStreakMember.user.name,
+        memberStats,
+      },
+    });
+
+    // Hall of fame: top performer vs most penalties
+    const topMember = memberships.reduce((best, m) =>
+      (completionsByUser.get(m.userId) ?? 0) > (completionsByUser.get(best.userId) ?? 0) ? m : best,
+    );
+    const bottomMember = memberships.reduce((worst, m) =>
+      (penaltiesByUser.get(m.userId) ?? 0) > (penaltiesByUser.get(worst.userId) ?? 0) ? m : worst,
+    );
+
+    await prisma.hallOfFame.upsert({
+      where: { groupId_weekStart: { groupId: group.id, weekStart } },
+      update: {
+        topUserId: topMember.userId,
+        topName: topMember.user.name,
+        topStat: `${completionsByUser.get(topMember.userId) ?? 0} completions this week`,
+        bottomUserId: bottomMember.userId,
+        bottomName: bottomMember.user.name,
+        bottomStat: `${penaltiesByUser.get(bottomMember.userId) ?? 0} penalty pts this week`,
+      },
+      create: {
+        groupId: group.id,
+        weekStart,
+        topUserId: topMember.userId,
+        topName: topMember.user.name,
+        topStat: `${completionsByUser.get(topMember.userId) ?? 0} completions this week`,
+        bottomUserId: bottomMember.userId,
+        bottomName: bottomMember.user.name,
+        bottomStat: `${penaltiesByUser.get(bottomMember.userId) ?? 0} penalty pts this week`,
+      },
+    });
+  }
+}
+
+export async function updateBestStreakAfterCheckIn(userId: string, groupId: string) {
+  const membership = await prisma.userGroup.findUnique({
+    where: { userId_groupId: { userId, groupId } },
+    select: { streak: true, bestStreak: true },
+  });
+  if (!membership) return;
+  if (membership.streak > membership.bestStreak) {
+    await prisma.userGroup.update({
+      where: { userId_groupId: { userId, groupId } },
+      data: { bestStreak: membership.streak },
+    });
+  }
+}
+
+export async function awardMilestoneBadges(userId: string, groupId: string) {
+  const [membership, checkIns, penalties] = await Promise.all([
+    prisma.userGroup.findUnique({
+      where: { userId_groupId: { userId, groupId } },
+      select: { completions: true, streak: true, earlyBirdCount: true },
+    }),
+    prisma.checkIn.count({ where: { userId, groupId, status: "APPROVED" } }),
+    prisma.penaltyEvent.count({ where: { userId, groupId } }),
+  ]);
+
+  if (!membership) return;
+
+  const toAward: { kind: "FIRST_COMPLETION" | "STREAK_7" | "ZERO_PENALTIES_MONTH" | "EARLY_BIRD_10" | "REACTIONS_50" }[] = [];
+
+  if (checkIns >= 1) toAward.push({ kind: "FIRST_COMPLETION" });
+  if (membership.streak >= 7) toAward.push({ kind: "STREAK_7" });
+  if (penalties === 0 && checkIns >= 20) toAward.push({ kind: "ZERO_PENALTIES_MONTH" });
+  if (membership.earlyBirdCount >= 10) toAward.push({ kind: "EARLY_BIRD_10" });
+
+  for (const badge of toAward) {
+    await prisma.milestoneBadge.upsert({
+      where: { userId_kind_groupId: { userId, kind: badge.kind, groupId } },
+      update: {},
+      create: { userId, kind: badge.kind, groupId },
+    });
+  }
 }

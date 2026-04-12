@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { reportServerError } from "@/lib/monitoring";
 import {
   cleanupAbandonedDraftProofs,
+  generateWeeklyRecapAndHallOfFame,
+  materializeAllGroupsForToday,
   syncMissedCheckInPenalties,
 } from "@/lib/server/studypact";
 
@@ -12,17 +14,29 @@ export async function GET(request: Request) {
   }
 
   try {
+    const isSunday = new Date().getDay() === 0;
+
+    // Step 1: materialize today's recurring tasks for all members before enforcement
+    const materializeSummary = await materializeAllGroupsForToday();
+
+    // Step 2: enforce missed check-ins for yesterday
     const [penaltySummary, cleanupSummary] = await Promise.all([
       syncMissedCheckInPenalties(),
       cleanupAbandonedDraftProofs(),
     ]);
 
+    if (isSunday) {
+      await generateWeeklyRecapAndHallOfFame();
+    }
+
     return NextResponse.json({
       success: true,
       completedAt: new Date().toISOString(),
       summary: {
+        materialize: materializeSummary,
         penalties: penaltySummary,
         cleanup: cleanupSummary,
+        weeklyRecapGenerated: isSunday,
       },
     });
   } catch (error) {

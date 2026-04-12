@@ -42,33 +42,63 @@ function UploadPanel({
   return (
     <div className="space-y-3">
       <label className="text-sm font-medium text-zinc-300 ml-1">{title}</label>
-      <div className="border-2 border-dashed border-zinc-700/50 rounded-2xl min-h-48 flex flex-col items-center justify-center bg-zinc-900/50 hover:bg-zinc-800/50 hover:border-primary/50 transition-all group px-6 py-8 text-center">
-        <div className="bg-zinc-800 p-4 rounded-full group-hover:scale-110 transition-transform">
-          <Camera className="w-6 h-6 text-zinc-400 group-hover:text-primary transition-colors" />
-        </div>
-        <p className="mt-4 text-sm font-medium text-zinc-300">
-          {isUploaded ? `${title} uploaded` : `Upload ${title.toLowerCase()}`}
-        </p>
-        <p className="text-xs text-zinc-500 mt-1">{helper}</p>
-        <div className="mt-5">
-          <UploadButton
-            endpoint="attachmentUploader"
-            input={{ groupId, slot }}
-            appearance={{
-              button:
-                "ut-ready:bg-primary ut-ready:hover:bg-primary/90 ut-uploading:bg-primary/80 ut-label:text-primary-foreground ut-allowed-content:text-zinc-500",
-              allowedContent: "text-zinc-500 text-xs",
-            }}
-            onClientUploadComplete={(res) => {
-              const item = res?.[0];
-              onUploaded(item?.serverData ? { fileId: item.serverData.fileId, url: item.url } : null);
-            }}
-            onUploadError={(error: Error) => {
-              alert(`Upload failed: ${error.message}`);
-            }}
+
+      {isUploaded && uploadedProof?.url ? (
+        <div className="relative rounded-2xl overflow-hidden border border-primary/30 bg-zinc-900">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={uploadedProof.url}
+            alt={`${title} preview`}
+            className="w-full max-h-56 object-cover"
           />
+          <div className="absolute bottom-0 left-0 right-0 flex items-center justify-between gap-3 bg-black/70 backdrop-blur-sm px-4 py-2">
+            <span className="text-xs text-emerald-400 font-medium flex items-center gap-1.5">
+              <Camera className="w-3.5 h-3.5" /> {title} uploaded
+            </span>
+            <UploadButton
+              endpoint="attachmentUploader"
+              input={{ groupId, slot }}
+              appearance={{
+                button: "ut-ready:bg-zinc-700 ut-ready:hover:bg-zinc-600 ut-ready:text-xs ut-ready:h-7 ut-ready:px-3 ut-uploading:bg-zinc-700",
+                allowedContent: "hidden",
+              }}
+              onClientUploadComplete={(res) => {
+                const item = res?.[0];
+                onUploaded(item?.serverData ? { fileId: item.serverData.fileId, url: item.url } : null);
+              }}
+              onUploadError={(error: Error) => {
+                alert(`Upload failed: ${error.message}`);
+              }}
+            />
+          </div>
         </div>
-      </div>
+      ) : (
+        <div className="border-2 border-dashed border-zinc-700/50 rounded-2xl min-h-48 flex flex-col items-center justify-center bg-zinc-900/50 hover:bg-zinc-800/50 hover:border-primary/50 transition-all group px-6 py-8 text-center">
+          <div className="bg-zinc-800 p-4 rounded-full group-hover:scale-110 transition-transform">
+            <Camera className="w-6 h-6 text-zinc-400 group-hover:text-primary transition-colors" />
+          </div>
+          <p className="mt-4 text-sm font-medium text-zinc-300">Upload {title.toLowerCase()}</p>
+          <p className="text-xs text-zinc-500 mt-1">{helper}</p>
+          <div className="mt-5">
+            <UploadButton
+              endpoint="attachmentUploader"
+              input={{ groupId, slot }}
+              appearance={{
+                button:
+                  "ut-ready:bg-primary ut-ready:hover:bg-primary/90 ut-uploading:bg-primary/80 ut-label:text-primary-foreground ut-allowed-content:text-zinc-500",
+                allowedContent: "text-zinc-500 text-xs",
+              }}
+              onClientUploadComplete={(res) => {
+                const item = res?.[0];
+                onUploaded(item?.serverData ? { fileId: item.serverData.fileId, url: item.url } : null);
+              }}
+              onUploadError={(error: Error) => {
+                alert(`Upload failed: ${error.message}`);
+              }}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

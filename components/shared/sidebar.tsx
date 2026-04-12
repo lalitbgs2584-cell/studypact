@@ -3,7 +3,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { authClient } from "@/lib/auth/client";
-import { LayoutDashboard, Shield, User, LogOut, ListTodo, Plus, Compass, Trophy } from "lucide-react";
+import { LayoutDashboard, Shield, User, LogOut, ListTodo, Plus, Trophy } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { StudyPactLogo } from "@/components/shared/studypact-logo";
 
@@ -19,7 +19,6 @@ export function Sidebar() {
     { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
     { href: "/leaderboards", label: "Leaderboards", icon: Trophy },
     { href: "/groups/create", label: "Create Group", icon: Plus },
-    { href: "/groups/discover", label: "Discover Groups", icon: Compass },
     { href: "/tasks", label: "My Tasks", icon: ListTodo },
     ...(isAdmin ? [{ href: "/admin", label: "Admin Dashboard", icon: Shield }] : []),
   ];

@@ -25,6 +25,11 @@ enum VerificationVerdict {
   FLAG
 }
 
+enum DisputeOutcome {
+  PENALIZED
+  DISMISSED
+}
+
 enum GroupVisibility {
   PRIVATE
   PUBLIC
@@ -85,6 +90,28 @@ enum GroupMessageReactionKind {
   ROCKET
 }
 
+enum CheckInReactionKind {
+  FIRE
+  STRONG
+  THINKING
+  EYES
+}
+
+enum MilestoneBadgeKind {
+  FIRST_COMPLETION
+  STREAK_7
+  ZERO_PENALTIES_MONTH
+  EARLY_BIRD_10
+  REACTIONS_50
+}
+
+enum RedemptionStatus {
+  PENDING
+  SUBMITTED
+  APPROVED
+  REJECTED
+}
+
 model User {
   id                      String                  @id
   name                    String
@@ -97,6 +124,10 @@ model User {
   isBlocked               Boolean?
   penaltyCount            Int                     @default(0)
   sessions                Session[]
+  checkInReactions        CheckInReaction[]
+  milestoneBadges         MilestoneBadge[]
+  confessionPosts         ConfessionPost[]
+  confessionUpvotes       ConfessionUpvote[]
   accounts                Account[]
   groups                  UserGroup[]
   createdGroups           Group[]                 @relation("GroupCreator")
@@ -190,6 +221,11 @@ model Group {
   endFiles          EndFile[]
   notificationLogs  NotificationLog[]
   taskTemplates     TaskTemplate[]
+  documents         GroupDocument[]
+  hallOfFameEntries HallOfFame[]
+  weeklyRecaps      WeeklyRecap[]
+  confessionPosts   ConfessionPost[]
+  redemptionTasks   RedemptionTask[]
 
   @@index([createdById])
   @@index([visibility, createdAt])
@@ -203,11 +239,13 @@ model UserGroup {
   role            GroupRole @default(member)
   points          Int      @default(0)
   streak          Int      @default(0)
+  bestStreak      Int      @default(0)
   completions     Int      @default(0)
   misses          Int      @default(0)
   reputationScore Int      @default(60)
   inactivityStrikes Int    @default(0)
   lastCheckInAt  DateTime?
+  earlyBirdCount  Int      @default(0)
 
   user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
   group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
@@ -230,8 +268,10 @@ model Task {
   completedAt DateTime?
   userId      String
   groupId     String
-  checkInId   String?
-  templateId  String?
+  checkInId      String?
+  templateId     String?
+  isChallengeMode Boolean  @default(false)
+  earlyBirdCutoff DateTime?
   user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
   group       Group       @relation(fields: [groupId], references: [id], onDelete: Cascade)
   checkIn     CheckIn?    @relation(fields: [checkInId], references: [id], onDelete: SetNull)
@@ -267,6 +307,8 @@ model CheckIn {
   startFiles    StartFile[]
   endFiles      EndFile[]
   notificationLogs NotificationLog[]
+  reactions        CheckInReaction[]
+  isEarlyBird      Boolean  @default(false)
 
   @@index([groupId, day])
   @@index([userId, day])
@@ -274,14 +316,16 @@ model CheckIn {
 }
 
 model SubmissionVerification {
-  id         String              @id @default(cuid())
-  verdict    VerificationVerdict
-  note       String?
-  createdAt  DateTime            @default(now())
-  checkInId  String
-  reviewerId String
-  checkIn    CheckIn             @relation(fields: [checkInId], references: [id], onDelete: Cascade)
-  reviewer   User                @relation(fields: [reviewerId], references: [id], onDelete: Cascade)
+  id             String              @id @default(cuid())
+  verdict        VerificationVerdict
+  note           String?
+  disputeOutcome DisputeOutcome?
+  resolvedAt     DateTime?
+  createdAt      DateTime            @default(now())
+  checkInId      String
+  reviewerId     String
+  checkIn        CheckIn             @relation(fields: [checkInId], references: [id], onDelete: Cascade)
+  reviewer       User                @relation(fields: [reviewerId], references: [id], onDelete: Cascade)
 
   @@index([checkInId])
   @@index([reviewerId])
@@ -415,4 +459,135 @@ model GroupMessageReaction {
   @@index([messageId])
   @@index([userId])
   @@map("group_message_reaction")
+}
+
+model CheckInReaction {
+  id        String              @id @default(cuid())
+  kind      CheckInReactionKind
+  createdAt DateTime            @default(now())
+  userId    String
+  checkInId String
+  user      User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  checkIn   CheckIn             @relation(fields: [checkInId], references: [id], onDelete: Cascade)
+
+  @@unique([checkInId, userId, kind])
+  @@index([checkInId])
+  @@index([userId])
+  @@map("check_in_reaction")
+}
+
+model GroupDocument {
+  id        String   @id @default(cuid())
+  title     String
+  content   String
+  fileUrl   String?
+  fileName  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  groupId   String
+  authorId  String
+  group     Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@index([groupId, createdAt])
+  @@map("group_document")
+}
+
+model HallOfFame {
+  id           String   @id @default(cuid())
+  weekStart    DateTime
+  topUserId    String
+  bottomUserId String
+  topName      String
+  bottomName   String
+  topStat      String
+  bottomStat   String
+  groupId      String
+  createdAt    DateTime @default(now())
+  group        Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, weekStart])
+  @@index([groupId, weekStart])
+  @@map("hall_of_fame")
+}
+
+model WeeklyRecap {
+  id                  String   @id @default(cuid())
+  weekStart           DateTime
+  totalCompleted      Int      @default(0)
+  mvpUserId           String?
+  mvpName             String?
+  penaltyLeaderUserId String?
+  penaltyLeaderName   String?
+  longestStreak       Int      @default(0)
+  longestStreakName   String?
+  memberStats         Json
+  groupId             String
+  createdAt           DateTime @default(now())
+  group               Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, weekStart])
+  @@index([groupId, weekStart])
+  @@map("weekly_recap")
+}
+
+model MilestoneBadge {
+  id        String             @id @default(cuid())
+  kind      MilestoneBadgeKind
+  earnedAt  DateTime           @default(now())
+  userId    String
+  groupId   String?
+  user      User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, kind, groupId])
+  @@index([userId])
+  @@map("milestone_badge")
+}
+
+model ConfessionPost {
+  id        String             @id @default(cuid())
+  content   String
+  createdAt DateTime           @default(now())
+  weekStart DateTime
+  userId    String
+  groupId   String
+  user      User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  group     Group              @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  upvotes   ConfessionUpvote[]
+
+  @@unique([userId, groupId, weekStart])
+  @@index([groupId, weekStart])
+  @@map("confession_post")
+}
+
+model ConfessionUpvote {
+  id           String        @id @default(cuid())
+  createdAt    DateTime      @default(now())
+  userId       String
+  confessionId String
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  confession   ConfessionPost @relation(fields: [confessionId], references: [id], onDelete: Cascade)
+
+  @@unique([confessionId, userId])
+  @@index([confessionId])
+  @@map("confession_upvote")
+}
+
+model RedemptionTask {
+  id          String           @id @default(cuid())
+  title       String
+  details     String?
+  status      RedemptionStatus @default(PENDING)
+  startFileUrl String?
+  endFileUrl   String?
+  reflection  String?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  targetUserId String
+  groupId     String
+  penaltyEventId String?
+  group       Group            @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@index([groupId, targetUserId])
+  @@index([targetUserId])
+  @@map("redemption_task")
 }

@@ -336,6 +336,8 @@ export async function createTaskAction(input: {
   targetMinutes?: number;
   isRecurring?: boolean;
   scope?: "PERSONAL" | "GROUP";
+  isChallengeMode?: boolean;
+  earlyBirdCutoff?: string; // "HH:MM" 24h format
 }) {
   const user = await getCurrentUser();
   const membership = await requireGroupMembership(user.id, input.groupId);
@@ -356,6 +358,17 @@ export async function createTaskAction(input: {
     input.targetMinutes && Number.isFinite(input.targetMinutes) && input.targetMinutes > 0
       ? Math.floor(input.targetMinutes)
       : null;
+
+  // Parse "HH:MM" cutoff into a full Date on today's date
+  let earlyBirdCutoff: Date | null = null;
+  if (input.earlyBirdCutoff && scope === "GROUP") {
+    const [hh, mm] = input.earlyBirdCutoff.split(":").map(Number);
+    if (Number.isFinite(hh) && Number.isFinite(mm)) {
+      const cutoffDate = startOfDay();
+      cutoffDate.setHours(hh, mm, 0, 0);
+      earlyBirdCutoff = cutoffDate;
+    }
+  }
 
   if (
     scope === "GROUP" &&
@@ -450,6 +463,8 @@ export async function createTaskAction(input: {
         userId: memberId,
         day: today,
         templateId,
+        isChallengeMode: scope === "GROUP" ? Boolean(input.isChallengeMode) : false,
+        earlyBirdCutoff,
       }));
 
     if (tasksToCreate.length) {
@@ -500,6 +515,8 @@ export async function createTaskAction(input: {
       userId: user.id,
       day: today,
       templateId,
+      isChallengeMode: Boolean(input.isChallengeMode),
+      earlyBirdCutoff,
     },
   });
 
@@ -572,8 +589,12 @@ export async function submitCheckInAction(input: {
       groupId: input.groupId,
       day: today,
     },
-    orderBy: {
-      createdAt: "asc",
+    orderBy: { createdAt: "asc" },
+    select: {
+      id: true,
+      status: true,
+      checkInId: true,
+      earlyBirdCutoff: true,
     },
   });
 
@@ -625,6 +646,10 @@ export async function submitCheckInAction(input: {
     totalTaskCount: tasks.length,
   });
 
+  const now = new Date();
+  const cutoff = tasks.find((t) => t.earlyBirdCutoff)?.earlyBirdCutoff ?? null;
+  const isEarlyBird = cutoff !== null && now <= cutoff;
+
   const checkIn = await prisma.$transaction(async (tx) => {
     const nextCheckIn = existingCheckIn
       ? await tx.checkIn.update({
@@ -639,6 +664,7 @@ export async function submitCheckInAction(input: {
             verifiedAt: null,
             pointsAwarded: 0,
             penaltyApplied: 0,
+            isEarlyBird,
           },
         })
       : await tx.checkIn.create({
@@ -652,6 +678,7 @@ export async function submitCheckInAction(input: {
             aiSummary: aiReview.summary,
             aiConfidence: aiReview.confidence,
             status: "PENDING",
+            isEarlyBird,
           },
         });
 
@@ -1067,4 +1094,313 @@ export async function syncGroupPenaltyLedger(groupId: string) {
   const user = await getCurrentUser();
   await requireGroupMembership(user.id, groupId);
   await syncMissedCheckInPenalties({ groupId });
+}
+
+export async function reactToCheckInAction(input: {
+  checkInId: string;
+  kind: "FIRE" | "STRONG" | "THINKING" | "EYES";
+}) {
+  const user = await getCurrentUser();
+  const checkIn = await prisma.checkIn.findUnique({
+    where: { id: input.checkInId },
+    select: { id: true, groupId: true, userId: true },
+  });
+  if (!checkIn) throw new Error("Check-in not found");
+  await requireGroupMembership(user.id, checkIn.groupId);
+
+  const existing = await prisma.checkInReaction.findFirst({
+    where: { checkInId: input.checkInId, userId: user.id, kind: input.kind },
+    select: { id: true },
+  });
+
+  if (existing) {
+    await prisma.checkInReaction.delete({ where: { id: existing.id } });
+  } else {
+    await prisma.checkInReaction.create({
+      data: { checkInId: input.checkInId, userId: user.id, kind: input.kind },
+    });
+    // Check milestone: 50 reactions received
+    const totalReceived = await prisma.checkInReaction.count({
+      where: { checkIn: { userId: checkIn.userId } },
+    });
+    if (totalReceived >= 50) {
+      await prisma.milestoneBadge.upsert({
+        where: { userId_kind_groupId: { userId: checkIn.userId, kind: "REACTIONS_50", groupId: checkIn.groupId } },
+        update: {},
+        create: { userId: checkIn.userId, kind: "REACTIONS_50", groupId: checkIn.groupId },
+      });
+    }
+  }
+
+  await refreshAppSurfaces(checkIn.groupId);
+}
+
+export async function createGroupDocumentAction(input: {
+  groupId: string;
+  title: string;
+  content: string;
+  fileUrl?: string;
+  fileName?: string;
+}) {
+  const user = await getCurrentUser();
+  const membership = await requireGroupMembership(user.id, input.groupId);
+  if (membership.role !== "admin") throw new Error("Only the group leader can post documents");
+
+  const title = input.title.trim();
+  const content = input.content.trim();
+  if (!title || !content) throw new Error("Title and content are required");
+
+  await prisma.groupDocument.create({
+    data: {
+      groupId: input.groupId,
+      authorId: user.id,
+      title,
+      content,
+      fileUrl: input.fileUrl?.trim() || null,
+      fileName: input.fileName?.trim() || null,
+    },
+  });
+
+  await refreshAppSurfaces(input.groupId);
+}
+
+export async function deleteGroupDocumentAction(documentId: string) {
+  const user = await getCurrentUser();
+  const doc = await prisma.groupDocument.findUnique({
+    where: { id: documentId },
+    select: { groupId: true, authorId: true },
+  });
+  if (!doc) throw new Error("Document not found");
+  const membership = await requireGroupMembership(user.id, doc.groupId);
+  if (membership.role !== "admin" && doc.authorId !== user.id) {
+    throw new Error("Only the group leader can delete documents");
+  }
+  await prisma.groupDocument.delete({ where: { id: documentId } });
+  await refreshAppSurfaces(doc.groupId);
+}
+
+export async function postConfessionAction(input: { groupId: string; content: string }) {
+  const user = await getCurrentUser();
+  await requireGroupMembership(user.id, input.groupId);
+
+  const content = input.content.trim();
+  if (!content) throw new Error("Confession cannot be empty");
+
+  const weekStart = startOfDay();
+  weekStart.setDate(weekStart.getDate() - weekStart.getDay()); // Sunday
+
+  await prisma.confessionPost.create({
+    data: {
+      groupId: input.groupId,
+      userId: user.id,
+      content,
+      weekStart,
+    },
+  });
+
+  await refreshAppSurfaces(input.groupId);
+}
+
+export async function upvoteConfessionAction(confessionId: string) {
+  const user = await getCurrentUser();
+  const confession = await prisma.confessionPost.findUnique({
+    where: { id: confessionId },
+    select: { groupId: true },
+  });
+  if (!confession) throw new Error("Confession not found");
+  await requireGroupMembership(user.id, confession.groupId);
+
+  const existing = await prisma.confessionUpvote.findUnique({
+    where: { confessionId_userId: { confessionId, userId: user.id } },
+    select: { id: true },
+  });
+
+  if (existing) {
+    await prisma.confessionUpvote.delete({ where: { id: existing.id } });
+  } else {
+    await prisma.confessionUpvote.create({ data: { confessionId, userId: user.id } });
+  }
+
+  await refreshAppSurfaces(confession.groupId);
+}
+
+export async function issueRedemptionTaskAction(input: {
+  groupId: string;
+  targetUserId: string;
+  title: string;
+  details?: string;
+  penaltyEventId?: string;
+}) {
+  const user = await getCurrentUser();
+  const membership = await requireGroupMembership(user.id, input.groupId);
+  if (membership.role !== "admin") throw new Error("Only the group leader can issue redemption tasks");
+
+  await requireGroupMembership(input.targetUserId, input.groupId);
+
+  await prisma.redemptionTask.create({
+    data: {
+      groupId: input.groupId,
+      targetUserId: input.targetUserId,
+      title: input.title.trim(),
+      details: input.details?.trim() || null,
+      penaltyEventId: input.penaltyEventId || null,
+    },
+  });
+
+  await refreshAppSurfaces(input.groupId);
+}
+
+export async function submitRedemptionTaskAction(input: {
+  redemptionTaskId: string;
+  startFileUrl: string;
+  endFileUrl: string;
+  reflection: string;
+}) {
+  const user = await getCurrentUser();
+  const task = await prisma.redemptionTask.findUnique({
+    where: { id: input.redemptionTaskId },
+    select: { id: true, groupId: true, targetUserId: true, status: true },
+  });
+  if (!task) throw new Error("Redemption task not found");
+  if (task.targetUserId !== user.id) throw new Error("This task is not assigned to you");
+  if (task.status !== "PENDING") throw new Error("This task has already been submitted");
+
+  await prisma.redemptionTask.update({
+    where: { id: input.redemptionTaskId },
+    data: {
+      status: "SUBMITTED",
+      startFileUrl: input.startFileUrl,
+      endFileUrl: input.endFileUrl,
+      reflection: input.reflection.trim(),
+    },
+  });
+
+  await refreshAppSurfaces(task.groupId);
+}
+
+export async function resolveRedemptionTaskAction(input: {
+  redemptionTaskId: string;
+  approve: boolean;
+}) {
+  const user = await getCurrentUser();
+  const task = await prisma.redemptionTask.findUnique({
+    where: { id: input.redemptionTaskId },
+    select: { id: true, groupId: true, targetUserId: true, status: true, penaltyEventId: true },
+  });
+  if (!task) throw new Error("Redemption task not found");
+  const membership = await requireGroupMembership(user.id, task.groupId);
+  if (membership.role !== "admin") throw new Error("Only the group leader can resolve redemption tasks");
+  if (task.status !== "SUBMITTED") throw new Error("Task has not been submitted yet");
+
+  if (input.approve) {
+    await prisma.$transaction(async (tx) => {
+      await tx.redemptionTask.update({
+        where: { id: task.id },
+        data: { status: "APPROVED" },
+      });
+      // Wipe one penalty point from the user's penaltyCount
+      await tx.user.update({
+        where: { id: task.targetUserId },
+        data: { penaltyCount: { decrement: 1 } },
+      });
+      // Also restore points in the group
+      const group = await tx.group.findUnique({ where: { id: task.groupId }, select: { dailyPenalty: true } });
+      if (group) {
+        await tx.userGroup.update({
+          where: { userId_groupId: { userId: task.targetUserId, groupId: task.groupId } },
+          data: { points: { increment: group.dailyPenalty }, misses: { decrement: 1 } },
+        });
+      }
+    });
+  } else {
+    await prisma.redemptionTask.update({
+      where: { id: task.id },
+      data: { status: "REJECTED" },
+    });
+  }
+
+  await refreshAppSurfaces(task.groupId);
+}
+
+export async function resolveDisputeAction(input: {
+  checkInId: string;
+  outcome: "PENALIZED" | "DISMISSED";
+}) {
+  const user = await getCurrentUser();
+
+  const checkIn = await prisma.checkIn.findUnique({
+    where: { id: input.checkInId },
+    include: {
+      group: true,
+      user: true,
+      verifications: { where: { verdict: "FLAG" } },
+    },
+  });
+
+  if (!checkIn) throw new Error("Check-in not found");
+
+  const membership = await requireGroupMembership(user.id, checkIn.groupId);
+  if (membership.role !== "admin") throw new Error("Only the group leader can resolve disputes");
+
+  if (checkIn.status !== "FLAGGED") throw new Error("This check-in is not flagged");
+
+  const flagVerifications = checkIn.verifications;
+  if (!flagVerifications.length) throw new Error("No flag found on this check-in");
+
+  // Mark all FLAG verifications as resolved
+  await prisma.submissionVerification.updateMany({
+    where: { checkInId: input.checkInId, verdict: "FLAG" },
+    data: {
+      disputeOutcome: input.outcome,
+      resolvedAt: new Date(),
+    },
+  });
+
+  if (input.outcome === "PENALIZED") {
+    const isChallengeMode = await prisma.task.findFirst({
+      where: { checkInId: input.checkInId, isChallengeMode: true },
+      select: { id: true },
+    });
+    const penaltyPoints = isChallengeMode
+      ? checkIn.group.dailyPenalty * 2
+      : checkIn.group.dailyPenalty;
+
+    const reason = `Dispute upheld — submission penalized by leader`;
+
+    const existing = await prisma.penaltyEvent.findFirst({
+      where: { checkInId: input.checkInId, reason },
+    });
+
+    if (!existing) {
+      await prisma.$transaction(async (tx) => {
+        await tx.penaltyEvent.create({
+          data: {
+            userId: checkIn.userId,
+            groupId: checkIn.groupId,
+            checkInId: checkIn.id,
+            points: penaltyPoints,
+            reason,
+          },
+        });
+        await tx.user.update({
+          where: { id: checkIn.userId },
+          data: { penaltyCount: { increment: 1 } },
+        });
+        await tx.userGroup.update({
+          where: { userId_groupId: { userId: checkIn.userId, groupId: checkIn.groupId } },
+          data: {
+            points: { decrement: penaltyPoints },
+            misses: { increment: 1 },
+            streak: 0,
+          },
+        });
+        await tx.checkIn.update({
+          where: { id: checkIn.id },
+          data: { penaltyApplied: { increment: penaltyPoints } },
+        });
+      });
+    }
+  }
+
+  await refreshAppSurfaces(checkIn.groupId);
 }

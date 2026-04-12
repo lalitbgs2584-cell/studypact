@@ -2,6 +2,7 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -62,6 +63,8 @@ export function TodoList({ groups, tasks: initialTasks }: TodoListProps) {
   const [scope, setScope] = useState<"PERSONAL" | "GROUP">("PERSONAL");
   const [targetMinutes, setTargetMinutes] = useState("");
   const [isRecurring, setIsRecurring] = useState(false);
+  const [isChallengeMode, setIsChallengeMode] = useState(false);
+  const [earlyBirdCutoff, setEarlyBirdCutoff] = useState("21:00");
   const [selectedGroupId, setSelectedGroupId] = useState(groups[0]?.id ?? "");
   const [isPending, startTransition] = useTransition();
 
@@ -84,6 +87,8 @@ export function TodoList({ groups, tasks: initialTasks }: TodoListProps) {
         category,
         scope,
         isRecurring,
+        isChallengeMode: scope === "GROUP" ? isChallengeMode : false,
+        earlyBirdCutoff: scope === "GROUP" ? earlyBirdCutoff : undefined,
         targetMinutes: targetMinutes ? Number(targetMinutes) : undefined,
       });
 
@@ -104,6 +109,12 @@ export function TodoList({ groups, tasks: initialTasks }: TodoListProps) {
           },
         ];
       });
+
+      toast.success(
+        scope === "GROUP"
+          ? `"${createdTask.title}" added for all group members`
+          : `"${createdTask.title}" added to your checklist`,
+      );
 
       setNewTask("");
       setTargetMinutes("");
@@ -272,6 +283,40 @@ export function TodoList({ groups, tasks: initialTasks }: TodoListProps) {
               />
               Recurring task
             </label>
+
+            {scope === "GROUP" && canPostGroupChecklist && (
+              <label className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm cursor-pointer transition-colors ${
+                isChallengeMode
+                  ? "border-red-500/40 bg-red-500/10 text-red-300"
+                  : "border-zinc-800 bg-zinc-900 text-zinc-300"
+              }`}>
+                <input
+                  type="checkbox"
+                  checked={isChallengeMode}
+                  onChange={(event) => setIsChallengeMode(event.target.checked)}
+                  className="accent-red-500"
+                />
+                Challenge mode ⚡
+              </label>
+            )}
+
+            {isChallengeMode && scope === "GROUP" && (
+              <p className="w-full text-xs text-red-400">
+                Completing this task = 2× leaderboard points. Failing = 2× penalty.
+              </p>
+            )}
+
+            {scope === "GROUP" && canPostGroupChecklist && (
+              <div className="flex items-center gap-2">
+                <label className="text-sm text-zinc-400 whitespace-nowrap">🐦 Early bird cutoff</label>
+                <input
+                  type="time"
+                  value={earlyBirdCutoff}
+                  onChange={(e) => setEarlyBirdCutoff(e.target.value)}
+                  className="h-9 rounded-xl border border-zinc-800 bg-zinc-900 px-3 text-sm text-zinc-100 outline-none"
+                />
+              </div>
+            )}
 
             <Button
               disabled={isPending || !selectedGroupId}

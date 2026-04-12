@@ -1,11 +1,11 @@
 import Link from "next/link";
-import { Compass, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
 import { AdminGroupCard } from "@/components/shared/admin-group-card";
 import { DashboardInsights } from "@/components/shared/dashboard-insights";
 import { JoinGroupDialog } from "@/components/shared/join-group-dialog";
 import { Button } from "@/components/ui/button";
 import { prisma } from "@/lib/db";
-import { ensureRecurringTasksForUser, requireSessionUser } from "@/lib/server/studypact";
+import { requireSessionUser } from "@/lib/server/studypact";
 import {
   addDays,
   calculateCompletionRate,
@@ -18,11 +18,10 @@ import {
 
 export default async function DashboardPage() {
   const user = await requireSessionUser("/dashboard");
-  await ensureRecurringTasksForUser(user.id);
   const today = startOfDay();
   const weekStart = addDays(today, -6);
 
-  const [memberships, publicGroupCount, recentTasks, recentPenalties, recentCheckIns] = await Promise.all([
+  const [memberships, recentTasks, recentPenalties, recentCheckIns] = await Promise.all([
     prisma.userGroup.findMany({
       where: {
         userId: user.id,
@@ -42,11 +41,6 @@ export default async function DashboardPage() {
             },
           },
         },
-      },
-    }),
-    prisma.group.count({
-      where: {
-        visibility: "PUBLIC",
       },
     }),
     prisma.task.findMany({
@@ -154,11 +148,6 @@ export default async function DashboardPage() {
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <JoinGroupDialog />
-          <Link href="/groups/discover">
-            <Button variant="outline" className="gap-2 border-zinc-700 text-zinc-100">
-              <Compass className="w-4 h-4" /> Discover Public Groups
-            </Button>
-          </Link>
           <Link href="/groups/create">
             <Button className="bg-primary hover:bg-primary/90 gap-2 shadow-[0_0_20px_rgba(var(--primary),0.3)]">
               <Plus className="w-4 h-4" /> Create Group
@@ -167,11 +156,7 @@ export default async function DashboardPage() {
         </div>
       </div>
 
-      {publicGroupCount > 0 ? (
-        <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-5 py-4 text-sm text-emerald-100">
-          {publicGroupCount} public {publicGroupCount === 1 ? "group is" : "groups are"} available to browse right now from the discover page.
-        </div>
-      ) : null}
+      {null}
 
       <DashboardInsights
         trend={trend}

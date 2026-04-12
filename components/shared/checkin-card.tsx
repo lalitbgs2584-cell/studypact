@@ -1,9 +1,16 @@
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
-import { verifyCheckInAction } from "@/lib/actions/studypact";
+import { verifyCheckInAction, reactToCheckInAction, resolveDisputeAction } from "@/lib/actions/studypact";
 import { cn } from "@/lib/utils";
-import { CheckCircle2, ExternalLink, Flag, ShieldAlert, Sparkles, Check } from "lucide-react";
+import { CheckCircle2, ExternalLink, Flag, ShieldAlert, Sparkles, Check, Gavel, X } from "lucide-react";
+
+const REACTIONS = [
+  { kind: "FIRE" as const, emoji: "🔥", label: "Fire" },
+  { kind: "STRONG" as const, emoji: "💪", label: "Strong" },
+  { kind: "THINKING" as const, emoji: "🤔", label: "Thinking" },
+  { kind: "EYES" as const, emoji: "👀", label: "Suspicious" },
+];
 
 interface CheckinCardProps {
   checkInId: string;
@@ -19,6 +26,10 @@ interface CheckinCardProps {
   startUrl?: string | null;
   endUrl?: string | null;
   canReview?: boolean;
+  isLeader?: boolean;
+  isEarlyBird?: boolean;
+  isChallengeMode?: boolean;
+  reactions?: { kind: "FIRE" | "STRONG" | "THINKING" | "EYES"; count: number; active: boolean }[];
 }
 
 export function CheckinCard({
@@ -35,6 +46,10 @@ export function CheckinCard({
   startUrl,
   endUrl,
   canReview = false,
+  isLeader = false,
+  isEarlyBird = false,
+  isChallengeMode = false,
+  reactions = [],
 }: CheckinCardProps) {
   const proofs = [
     {
@@ -59,7 +74,11 @@ export function CheckinCard({
             </div>
           </div>
           <div>
-            <CardTitle className="text-base text-zinc-100">{user}</CardTitle>
+            <CardTitle className="text-base text-zinc-100 flex items-center gap-2">
+              {user}
+              {isEarlyBird && <span className="text-xs rounded-full bg-amber-500/20 border border-amber-500/30 text-amber-300 px-2 py-0.5">🐦 Early Bird</span>}
+              {isChallengeMode && <span className="text-xs rounded-full bg-red-500/20 border border-red-500/30 text-red-300 px-2 py-0.5">⚡ Challenge</span>}
+            </CardTitle>
             <CardDescription className="text-xs text-zinc-500">{time}</CardDescription>
           </div>
         </div>
@@ -194,21 +213,69 @@ export function CheckinCard({
       </CardContent>
 
       {canReview && status === "PENDING" ? (
-        <CardFooter className="flex justify-end gap-2 border-t border-zinc-800/20 bg-zinc-900/20 pt-4">
-          <form action={verifyCheckInAction.bind(null, { checkInId, verdict: "FLAG" })}>
-            <Button type="submit" variant="ghost" size="sm" className="text-zinc-400 hover:text-white">
-              Flag
-            </Button>
-          </form>
-          <form action={verifyCheckInAction.bind(null, { checkInId, verdict: "APPROVE" })}>
-            <Button
-              type="submit"
-              size="sm"
-              className="border border-primary/30 bg-primary/20 text-primary shadow-[0_0_15px_rgba(var(--primary),0.2)] transition-all hover:bg-primary hover:text-white"
-            >
-              <Check className="w-4 h-4 mr-1" /> Approve
-            </Button>
-          </form>
+        <CardFooter className="flex flex-col gap-3 border-t border-zinc-800/20 bg-zinc-900/20 pt-4">
+          <div className="flex flex-wrap gap-2 w-full">
+            {REACTIONS.map((r) => {
+              const current = reactions.find((rx) => rx.kind === r.kind);
+              return (
+                <form key={r.kind} action={reactToCheckInAction.bind(null, { checkInId, kind: r.kind })}>
+                  <button
+                    type="submit"
+                    className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-sm transition-colors ${
+                      current?.active
+                        ? "border-primary/40 bg-primary/10 text-primary"
+                        : "border-zinc-700 bg-zinc-900 text-zinc-400 hover:text-zinc-100"
+                    }`}
+                  >
+                    {r.emoji} {current?.count ?? 0}
+                  </button>
+                </form>
+              );
+            })}
+          </div>
+          <div className="flex justify-end gap-2 w-full">
+            <form action={verifyCheckInAction.bind(null, { checkInId, verdict: "FLAG" })}>
+              <Button type="submit" variant="ghost" size="sm" className="text-zinc-400 hover:text-white">
+                Flag
+              </Button>
+            </form>
+            <form action={verifyCheckInAction.bind(null, { checkInId, verdict: "APPROVE" })}>
+              <Button
+                type="submit"
+                size="sm"
+                className="border border-primary/30 bg-primary/20 text-primary shadow-[0_0_15px_rgba(var(--primary),0.2)] transition-all hover:bg-primary hover:text-white"
+              >
+                <Check className="w-4 h-4 mr-1" /> Approve
+              </Button>
+            </form>
+          </div>
+        </CardFooter>
+      ) : null}
+
+      {isLeader && status === "FLAGGED" ? (
+        <CardFooter className="flex flex-col gap-2 border-t border-amber-500/20 bg-amber-500/5 pt-4">
+          <p className="text-xs text-amber-400 w-full font-medium">Dispute pending your review</p>
+          <div className="flex gap-2 w-full">
+            <form action={resolveDisputeAction.bind(null, { checkInId, outcome: "PENALIZED" })} className="flex-1">
+              <Button
+                type="submit"
+                size="sm"
+                className="w-full border border-red-500/30 bg-red-500/10 text-red-300 hover:bg-red-500/20"
+              >
+                <Gavel className="w-3.5 h-3.5 mr-1.5" /> Dispute valid — add penalty
+              </Button>
+            </form>
+            <form action={resolveDisputeAction.bind(null, { checkInId, outcome: "DISMISSED" })} className="flex-1">
+              <Button
+                type="submit"
+                size="sm"
+                variant="outline"
+                className="w-full border-zinc-700 text-zinc-400 hover:text-zinc-100"
+              >
+                <X className="w-3.5 h-3.5 mr-1.5" /> Dispute invalid — ignore
+              </Button>
+            </form>
+          </div>
         </CardFooter>
       ) : null}
     </Card>

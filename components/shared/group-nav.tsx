@@ -3,7 +3,7 @@ import { cn } from "@/lib/utils";
 
 type GroupNavProps = {
   groupId: string;
-  active: "feed" | "checkin" | "ledger" | "gallery";
+  active: "feed" | "checkin" | "ledger" | "gallery" | "docs" | "confessions" | "redemption";
 };
 
 const items = [
@@ -11,6 +11,9 @@ const items = [
   { id: "checkin", label: "Check-in" },
   { id: "ledger", label: "Ledger" },
   { id: "gallery", label: "Proof Gallery" },
+  { id: "docs", label: "Docs" },
+  { id: "confessions", label: "Confessions" },
+  { id: "redemption", label: "Redemption" },
 ] as const;
 
 export function GroupNav({ groupId, active }: GroupNavProps) {
