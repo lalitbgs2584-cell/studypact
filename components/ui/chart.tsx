@@ -7,6 +7,7 @@ import type { TooltipValueType } from "recharts"
 import { cn } from "@/lib/utils"
 
 // Format: { THEME_NAME: CSS_SELECTOR }
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const THEMES = { light: "", dark: ".dark" } as const
 
 const INITIAL_DIMENSION = { width: 320, height: 200 } as const
@@ -84,36 +85,37 @@ function ChartContainer({
 }
 
 const ChartStyle = ({ id, config }: { id: string; config: ChartConfig }) => {
-  const colorConfig = Object.entries(config).filter(
-    ([, config]) => config.theme ?? config.color
-  )
+  const isDark =
+    typeof document !== "undefined" &&
+    document.documentElement.classList.contains("dark")
+  const theme = isDark ? "dark" : "light"
 
-  if (!colorConfig.length) {
-    return null
-  }
+  React.useEffect(() => {
+    const safeId = id.replace(/[^a-zA-Z0-9_-]/g, "")
+    const el = document.querySelector(
+      `[data-chart="${safeId}"]`
+    ) as HTMLElement | null
+    if (!el) return
 
-  return (
-    <style
-      dangerouslySetInnerHTML={{
-        __html: Object.entries(THEMES)
-          .map(
-            ([theme, prefix]) => `
-${prefix} [data-chart=${id}] {
-${colorConfig
-  .map(([key, itemConfig]) => {
-    const color =
-      itemConfig.theme?.[theme as keyof typeof itemConfig.theme] ??
-      itemConfig.color
-    return color ? `  --color-${key}: ${color};` : null
-  })
-  .join("\n")}
-}
-`
-          )
-          .join("\n"),
-      }}
-    />
-  )
+    Object.entries(config).forEach(([key, itemConfig]) => {
+      const raw =
+        itemConfig.theme?.[theme as keyof typeof itemConfig.theme] ??
+        itemConfig.color
+
+      // Sanitize key: only allow alphanumeric, hyphens, and underscores
+      const safeKey = key.replace(/[^a-zA-Z0-9_-]/g, "")
+
+      // Sanitize value: only allow safe CSS color characters
+      const safeValue =
+        raw && /^[a-zA-Z0-9#()%.,\s]+$/.test(raw) ? raw : null
+
+      if (safeKey && safeValue) {
+        el.style.setProperty(`--color-${safeKey}`, safeValue)
+      }
+    })
+  }, [id, config, theme])
+
+  return null
 }
 
 const ChartTooltip = RechartsPrimitive.Tooltip
@@ -174,15 +176,7 @@ function ChartTooltipContent({
     }
 
     return <div className={cn("font-medium", labelClassName)}>{value}</div>
-  }, [
-    label,
-    labelFormatter,
-    payload,
-    hideLabel,
-    labelClassName,
-    config,
-    labelKey,
-  ])
+  }, [label, labelFormatter, payload, hideLabel, labelClassName, config, labelKey])
 
   if (!active || !payload?.length) {
     return null

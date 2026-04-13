@@ -25,6 +25,7 @@ export function MobileGroupNav({ groupId, active }: MobileGroupNavProps) {
           <Link
             key={item.id}
             href={item.href(groupId)}
+            aria-label={item.label}
             className={cn(
               "flex flex-col items-center gap-1 flex-1 py-2 text-xs font-medium transition-colors",
               isActive ? "text-primary" : "text-zinc-500 hover:text-zinc-300",

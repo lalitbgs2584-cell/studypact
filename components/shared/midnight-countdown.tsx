@@ -18,33 +18,33 @@ function formatTime(seconds: number) {
 }
 
 export function MidnightCountdown({ submitted }: { submitted?: boolean }) {
-  const [seconds, setSeconds] = useState(() => getSecondsUntilMidnight());
+  const [seconds, setSeconds] = useState<number | null>(null);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSeconds(getSecondsUntilMidnight());
     const interval = setInterval(() => setSeconds(getSecondsUntilMidnight()), 1000);
     return () => clearInterval(interval);
   }, []);
 
   if (submitted) {
     return (
-      <div className="flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-2.5 text-sm text-emerald-300">
-        <Clock className="w-4 h-4" />
-        <span className="font-medium">Submitted ✓</span>
+      <div className="flex items-center gap-2 border border-rule bg-surface/50 px-4 py-2 text-[10px] font-mono tracking-widest text-verified uppercase">
+        <span>OBLIGATION MET ✓</span>
       </div>
     );
   }
 
-  const color =
-    seconds < 3600
-      ? "border-red-500/30 bg-red-500/10 text-red-300"
-      : seconds < 14400
-        ? "border-amber-500/30 bg-amber-500/10 text-amber-300"
-        : "border-emerald-500/30 bg-emerald-500/10 text-emerald-300";
+  const colorStyle =
+    seconds === null || seconds >= 14400
+      ? "text-parchment"
+      : seconds < 3600
+        ? "text-wax animate-pulse"
+        : "text-parchment-muted";
 
   return (
-    <div className={`flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-mono font-medium ${color}`}>
-      <Clock className="w-4 h-4" />
-      <span>{formatTime(seconds)} until midnight</span>
+    <div className={`flex items-center gap-2 border border-rule px-4 py-2 text-[10px] font-mono tracking-widest uppercase bg-surface/50 ${colorStyle}`}>
+      <span>EXECUTION DEADLINE: {seconds === null ? "--:--:--" : formatTime(seconds)}</span>
     </div>
   );
 }

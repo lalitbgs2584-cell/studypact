@@ -109,27 +109,26 @@ export function LeaderboardGroup({ group, currentUserId, todayIso }: Leaderboard
     });
   }, [activeTab, group.checkIns, group.members, todayIso]);
 
-  const rest = rankedMembers.slice(3);
   const topScore = rankedMembers[0]?.score ?? 0;
 
   return (
-    <section className="space-y-5 rounded-[2rem] border border-border bg-background/60 p-6 backdrop-blur-xl">
+    <section className="space-y-5 rounded-2xl border border-border bg-card/50 p-5">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <h2 className="text-2xl font-bold text-foreground">{group.name}</h2>
           <p className="text-sm text-muted-foreground">{group.members.length} members</p>
         </div>
-        <div className="flex flex-wrap gap-2 rounded-full border border-border bg-card/70 p-1">
+        <div className="flex gap-1 rounded-xl border border-border bg-muted/30 p-1">
           {tabs.map((tab) => (
             <button
               key={tab.key}
               type="button"
               onClick={() => setActiveTab(tab.key)}
               className={cn(
-                "rounded-full px-4 py-2 text-sm font-medium transition-colors",
+                "flex-1 rounded-lg px-3 py-1.5 text-center text-xs font-medium transition-colors",
                 activeTab === tab.key
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:bg-secondary hover:text-foreground",
+                  ? "bg-primary text-primary-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground",
               )}
             >
               {tab.label}
@@ -144,109 +143,63 @@ export function LeaderboardGroup({ group, currentUserId, todayIso }: Leaderboard
           <p className="text-lg font-semibold text-foreground">No members yet.</p>
         </div>
       ) : (
-        <>
-          <div className="grid gap-4 lg:grid-cols-3 lg:items-end">
-            {[rankedMembers[1], rankedMembers[0], rankedMembers[2]].map((member, index) => {
-              if (!member) return <div key={`empty-${index}`} className="hidden lg:block" />;
+        <div className="space-y-2">
+          {rankedMembers.map((member) => {
+            const isMe = member.userId === currentUserId;
+            const percentage = topScore > 0 ? Math.max(4, Math.round((member.score / topScore) * 100)) : 0;
 
-              const isFirst = member.rank === 1;
-              const badgeTone =
-                member.rank === 1
-                  ? "from-primary to-emerald-300"
-                  : member.rank === 2
-                    ? "from-zinc-300 to-zinc-500"
-                    : "from-amber-300 to-amber-600";
-
-              return (
-                <div
-                  key={member.userId}
-                  className={cn(
-                    "rounded-3xl border border-border bg-card/80 p-5 text-center shadow-xl",
-                    isFirst ? "lg:min-h-[18rem]" : "lg:min-h-[15rem]",
-                    member.userId === currentUserId && "ring-1 ring-primary/40",
+            return (
+              <div
+                key={member.userId}
+                className={cn(
+                  "flex items-center gap-3 rounded-2xl border px-4 py-3 transition-colors",
+                  isMe
+                    ? "border-primary/30 bg-primary/8"
+                    : "border-border bg-card/40 hover:bg-card/70",
+                )}
+              >
+                <span className="w-8 shrink-0 text-center text-sm">
+                  {member.rank <= 3 ? (
+                    medalByRank[member.rank]
+                  ) : (
+                    <span className="text-xs font-bold text-muted-foreground">{member.rank}</span>
                   )}
-                >
-                  <div
-                    className={cn(
-                      "mx-auto flex items-center justify-center rounded-full bg-gradient-to-br text-lg font-bold text-background shadow-lg",
-                      isFirst ? "h-20 w-20" : "h-16 w-16",
-                      badgeTone,
-                    )}
-                  >
-                    {getInitials(member.name)}
-                  </div>
-                  <p className="mt-4 text-2xl">{medalByRank[member.rank]}</p>
-                  <p className="mt-2 truncate text-lg font-semibold text-foreground">
-                    {member.name}
-                    {member.userId === currentUserId ? " (you)" : ""}
-                  </p>
-                  <p className="mt-2 text-sm text-muted-foreground">
-                    {activeTab === "allTime"
-                      ? `${member.score} pts`
-                      : activeTab === "weekly"
-                        ? `${member.score} completions`
-                        : `${member.score} streak`}
-                  </p>
+                </span>
+
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-secondary text-xs font-semibold text-foreground">
+                  {getInitials(member.name)}
                 </div>
-              );
-            })}
-          </div>
 
-          <div className="space-y-3">
-            {rest.map((member, index) => {
-              const percentage = topScore > 0 ? Math.max(6, Math.round((member.score / topScore) * 100)) : 0;
-              return (
-                <div
-                  key={member.userId}
-                  className={cn(
-                    "rounded-2xl border border-border p-4",
-                    index % 2 === 0 ? "bg-card/70" : "bg-card/40",
-                    member.userId === currentUserId && "ring-1 ring-primary/35",
-                  )}
-                >
-                  <div className="flex items-center gap-3">
-                    <span className="w-8 text-sm font-bold text-muted-foreground">{member.rank}</span>
-                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-secondary text-xs font-semibold text-foreground">
-                      {getInitials(member.name)}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-semibold text-foreground">
-                        {member.name}
-                        {member.userId === currentUserId ? " (you)" : ""}
-                      </p>
-                    </div>
-                    <div className="text-right text-sm font-semibold text-foreground">
-                      {activeTab === "allTime"
-                        ? `${member.score} pts`
-                        : activeTab === "weekly"
-                          ? `${member.score} completed`
-                          : `${member.score} streak`}
-                    </div>
-                  </div>
-
-                  <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-secondary">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium text-foreground">
+                    {member.name}
+                    {isMe ? " (you)" : ""}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {member.streak} streak · {member.completions} done · {member.misses} miss
+                  </p>
+                  <div className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-muted/40">
                     <div
-                      className="h-full rounded-full bg-gradient-to-r from-primary to-accent"
+                      className="h-full rounded-full bg-primary/60 transition-all duration-500"
                       style={{ width: `${percentage}%` }}
                     />
                   </div>
-
-                  <div className="mt-3 flex flex-wrap gap-2 text-xs">
-                    <span className="rounded-full border border-border bg-background px-2.5 py-1 text-muted-foreground">
-                      {member.streak} streak
-                    </span>
-                    <span className="rounded-full border border-border bg-background px-2.5 py-1 text-muted-foreground">
-                      {member.completions} completions
-                    </span>
-                    <span className="rounded-full border border-border bg-background px-2.5 py-1 text-muted-foreground">
-                      {member.misses} misses
-                    </span>
-                  </div>
                 </div>
-              );
-            })}
-          </div>
-        </>
+
+                <div className="shrink-0 text-right">
+                  <p className="text-sm font-bold text-foreground">
+                    {activeTab === "allTime"
+                      ? `${member.score}p`
+                      : activeTab === "weekly"
+                        ? `${member.score}✓`
+                        : `${member.score}d`}
+                  </p>
+                  <p className="text-[10px] text-muted-foreground">{member.reputationScore}rep</p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
       )}
     </section>
   );

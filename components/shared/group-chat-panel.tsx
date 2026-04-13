@@ -83,22 +83,15 @@ export function GroupChatPanel({ groupId, messages }: GroupChatPanelProps) {
   };
 
   return (
-    <div className="rounded-2xl border border-zinc-800/60 bg-black/20 p-5 backdrop-blur-lg">
-      <div className="mb-4 flex items-start justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className="rounded-xl border border-primary/20 bg-primary/10 p-2">
-            <MessageSquare className="h-5 w-5 text-primary" />
-          </div>
-          <div>
-            <h3 className="text-lg font-semibold text-zinc-100">Group Posts</h3>
-            <p className="text-xs text-zinc-500">
-              Share study notes, questions, and photos with everyone in this group
-            </p>
-          </div>
+    <div className="w-full bg-background border border-rule shadow-[0_0_40px_rgba(0,0,0,0.8)] relative z-10 flex flex-col">
+      {/* Header */}
+      <div className="border-b border-rule p-4 md:p-6 flex justify-between items-baseline bg-surface/50">
+        <div className="font-mono text-xs text-parchment-muted tracking-widest uppercase">
+          TRIBUNAL COMMUNICATIONS
         </div>
         <Button
           type="button"
-          variant="outline"
+          variant="ghost"
           size="sm"
           disabled={isRefreshing}
           onClick={() => {
@@ -106,44 +99,70 @@ export function GroupChatPanel({ groupId, messages }: GroupChatPanelProps) {
               router.refresh();
             });
           }}
-          className="border-zinc-700 bg-zinc-900/70 text-zinc-200 hover:bg-zinc-800"
+          className="font-mono text-[10px] text-wax border border-primary px-2 py-1 tracking-widest hover:bg-wax hover:text-parchment h-auto rounded-none"
         >
-          {isRefreshing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCcw className="w-3.5 h-3.5" />}
-          Refresh
+          {isRefreshing ? <Loader2 className="w-3 h-3 animate-spin mr-1 inline" /> : <RefreshCcw className="w-3 h-3 mr-1 inline" />}
+          SYNC PROTOCOL
         </Button>
       </div>
 
-      <div className="max-h-80 space-y-3 overflow-y-auto pr-1">
+      <div className="flex flex-col gap-0 max-h-[400px] overflow-y-auto">
         {messages.length > 0 ? (
           messages.map((message) => (
-            <div key={message.id} className="rounded-xl border border-zinc-800 bg-zinc-900/30 px-3 py-3">
+            <div key={message.id} className="border-b border-rule bg-surface p-4 md:p-6 flex flex-col gap-4">
+              <div className="flex justify-between items-center">
+                <div className="flex items-center gap-3">
+                  <div className="size-2 rounded-full bg-foreground" />
+                  <span className="font-serif text-lg text-parchment">
+                    {message.userName}
+                  </span>
+                </div>
+                <span className="font-mono text-[10px] tracking-widest text-parchment-muted uppercase">
+                  {new Date(message.createdAt).toLocaleString("en-GB", {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                    day: "2-digit",
+                    month: "short"
+                  })}
+                </span>
+              </div>
+
               {message.content ? (
-                <p className="text-sm text-zinc-100">{message.content}</p>
+                <p className="font-serif text-base text-parchment-muted leading-relaxed pl-5">
+                  {message.content}
+                </p>
               ) : (
-                <p className="text-sm italic text-zinc-400">Shared a photo with the group.</p>
+                <p className="font-mono text-xs italic text-parchment-muted pl-5 uppercase tracking-wide">
+                  [EVIDENCE SUBMITTED]
+                </p>
               )}
 
               {message.imageUrl ? (
-                <a
-                  href={message.imageUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="mt-3 block overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950"
-                >
-                  <img
-                    src={message.imageUrl}
-                    alt={message.imageName || "Group post image"}
-                    className="max-h-64 w-full object-cover"
-                  />
-                </a>
+                <div className="mt-2 border border-rule bg-surface p-1 ml-5">
+                  <div className="border border-rule/50 relative flex items-center justify-center bg-background/50">
+                    <a
+                      href={message.imageUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="block w-full"
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={message.imageUrl}
+                        alt={message.imageName || "Evidence"}
+                        className="max-h-64 object-cover mx-auto"
+                      />
+                    </a>
+                  </div>
+                  {message.imageName && (
+                    <div className="mt-2 font-mono text-[10px] text-parchment-muted tracking-widest uppercase">
+                      REF: {message.imageName}
+                    </div>
+                  )}
+                </div>
               ) : null}
 
-              <p className="mt-2 text-xs text-zinc-500">
-                {message.userName} | {new Date(message.createdAt).toLocaleString("en-IN")}
-                {message.imageName ? ` | ${message.imageName}` : ""}
-              </p>
-
-              <div className="mt-3 flex flex-wrap gap-2">
+              <div className="mt-2 flex flex-wrap gap-2 pl-5">
                 {(Object.keys(reactionMeta) as ReactionKind[]).map((kind) => {
                   const reaction = message.reactions.find((item) => item.kind === kind);
                   const count = reaction?.count ?? 0;
@@ -154,13 +173,13 @@ export function GroupChatPanel({ groupId, messages }: GroupChatPanelProps) {
                       key={kind}
                       type="button"
                       onClick={() => handleReaction(message.id, kind)}
-                      className={`rounded-full border px-3 py-1 text-xs transition-colors ${
+                      className={`font-mono text-[10px] tracking-widest uppercase px-2 py-1 transition-colors border ${
                         active
-                          ? "border-primary/40 bg-primary/15 text-primary"
-                          : "border-zinc-800 bg-zinc-950 text-zinc-400 hover:text-zinc-100"
+                          ? "border-primary text-wax bg-primary/10"
+                          : "border-rule text-parchment-muted hover:text-foreground"
                       }`}
                     >
-                      {reactionMeta[kind]} {count > 0 ? count : ""}
+                      {reactionMeta[kind]} {count > 0 ? `| ${count}` : ""}
                     </button>
                   );
                 })}
@@ -168,36 +187,41 @@ export function GroupChatPanel({ groupId, messages }: GroupChatPanelProps) {
             </div>
           ))
         ) : (
-          <div className="rounded-xl border border-dashed border-zinc-800 px-4 py-8 text-center text-sm text-zinc-500">
-            No group posts yet. Share a note or question with the team.
+          <div className="p-8 text-center border-b border-rule">
+            <span className="font-mono text-xs text-parchment-muted tracking-widest uppercase border border-foreground px-3 py-2 bg-background/80">
+              COMMUNICATIONS LOG EMPTY
+            </span>
           </div>
         )}
       </div>
 
-      <div className="mt-4 space-y-3">
-        <Textarea
-          value={content}
-          onChange={(event) => setContent(event.target.value)}
-          placeholder="Ask the group to solve something, share what to read, or drop a quick update..."
-          className="min-h-24 rounded-xl border-zinc-800 bg-zinc-900/50 text-zinc-100 focus-visible:ring-primary/50"
-        />
-
-        <div className="rounded-xl border border-zinc-800 bg-zinc-950/50 p-3">
-          <div className="flex items-center gap-2 text-sm text-zinc-200">
-            <ImagePlus className="h-4 w-4 text-primary" />
-            Add a photo for the group
+      <div className="p-4 md:p-6 bg-background flex flex-col gap-4">
+        <div>
+          <div className="font-mono text-[10px] text-parchment-muted tracking-widest uppercase mb-2">
+            SUBMIT COMMUNICATION
           </div>
-          <p className="mt-1 text-xs text-zinc-500">
-            Upload a screenshot, question, notes page, or roadmap image. Every member in this group will see it.
-          </p>
+          <Textarea
+            value={content}
+            onChange={(event) => setContent(event.target.value)}
+            placeholder="Input statement..."
+            className="min-h-24 border-rule bg-surface/50 text-parchment font-serif focus-visible:ring-primary/50 focus-visible:border-primary rounded-none"
+          />
+        </div>
+
+        <div className="border border-rule bg-surface/30 p-4">
+          <div className="flex items-center gap-2 font-mono text-[10px] tracking-widest uppercase text-parchment-muted mb-2">
+            <ImagePlus className="h-3 w-3 text-wax" />
+            Append Optical Evidence
+          </div>
+          
           <div className="mt-3">
             <UploadButton
               endpoint="groupMessageImageUploader"
               input={{ groupId }}
               appearance={{
-                button:
-                  "ut-ready:bg-primary ut-ready:hover:bg-primary/90 ut-uploading:bg-primary/80 ut-label:text-primary-foreground ut-allowed-content:text-zinc-500",
-                allowedContent: "text-zinc-500 text-xs",
+                button: "ut-ready:bg-wax ut-ready:hover:bg-wax-deep ut-uploading:bg-wax/50 ut-label:text-parchment font-mono text-[10px] tracking-widest uppercase rounded-none border border-primary px-4 py-2 w-full",
+                allowedContent: "text-parchment-muted font-mono text-[10px] uppercase",
+                container: "w-fit"
               }}
               onClientUploadComplete={(res) => {
                 const item = res?.[0];
@@ -220,29 +244,30 @@ export function GroupChatPanel({ groupId, messages }: GroupChatPanelProps) {
           </div>
 
           {attachment?.url ? (
-            <div className="mt-3 overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900/40">
+            <div className="mt-4 border border-rule bg-background p-1">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={attachment.url}
-                alt={attachment.name || "Pending group post image"}
-                className="max-h-52 w-full object-cover"
+                alt={attachment.name || "Pending evidence"}
+                className="max-h-32 object-cover"
               />
-              <div className="px-3 py-2 text-xs text-zinc-400">
-                Ready to post: {attachment.name}
+              <div className="mt-2 font-mono text-[10px] text-wax tracking-widest uppercase">
+                APPENDED: {attachment.name}
               </div>
             </div>
           ) : null}
         </div>
 
-        {error ? <p className="text-sm text-red-400">{error}</p> : null}
+        {error ? <p className="font-mono text-[10px] text-wax tracking-widest uppercase border border-wax bg-wax/10 p-2">{error}</p> : null}
 
         <Button
           disabled={isPending || (!content.trim() && !attachment?.url)}
           type="button"
           onClick={handleSend}
-          className="w-full"
+          className="bg-wax hover:bg-wax-deep text-parchment font-mono text-xs tracking-widest uppercase px-8 py-4 border border-primary transition-colors w-full rounded-none h-auto"
         >
-          {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-          Share with Group
+          {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin inline" /> : null}
+          EXECUTE TRANSMISSION
         </Button>
       </div>
     </div>

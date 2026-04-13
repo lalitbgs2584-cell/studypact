@@ -56,6 +56,7 @@ export function GroupNav({ groupId, active }: GroupNavProps) {
       <div className="relative">
         <button
           type="button"
+          aria-label={activeIsSecondary ? `More — currently on ${secondaryItems.find((i) => i.id === active)?.label}` : "More options"}
           onClick={() => setOpen((v) => !v)}
           className={cn(
             "flex items-center gap-1.5 rounded-xl px-4 py-2 text-sm font-medium transition-colors",

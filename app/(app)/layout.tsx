@@ -10,7 +10,7 @@ export default function AppLayout({
       <div className="fixed top-0 left-0 right-0 z-50 h-[2px] bg-gradient-to-r from-primary via-accent to-primary opacity-80" />
       <Sidebar />
       <main className="flex-1 overflow-y-auto w-full">
-        <div className="mx-auto max-w-6xl p-6 lg:p-10 w-full">
+        <div className="mx-auto max-w-5xl w-full p-5 lg:p-8">
           {children}
         </div>
       </main>
